@@ -26,6 +26,13 @@ type ChatCompletionResponse = {
   }>
 }
 
+type KeywordSuggestionInput = {
+  originalName: string
+  existingKeywords: string[]
+  imagePath: string
+  mimeType: string
+}
+
 const app = express()
 const port = Number(process.env.PORT ?? 4000)
 const aiApiKey = process.env.AI_API_KEY
@@ -103,9 +110,11 @@ app.post('/photos', upload.single('photo'), async (request, response, next) => {
 
     const photos = await readPhotos()
     const manualKeywords = parseKeywords(request.body.keywords)
-    const suggestedKeywords = suggestKeywords({
+    const suggestedKeywords = await suggestKeywords({
       originalName: request.file.originalname,
       existingKeywords: manualKeywords,
+      imagePath: request.file.path,
+      mimeType: request.file.mimetype,
     })
     const photo: Photo = {
       id: crypto.randomUUID(),
@@ -135,9 +144,11 @@ app.post('/photos/:id/suggest-keywords', async (request, response, next) => {
       return
     }
 
-    const suggestedKeywords = suggestKeywords({
+    const suggestedKeywords = await suggestKeywords({
       originalName: photo.originalName,
       existingKeywords: photo.keywords,
+      imagePath: path.join(uploadsDir, photo.filename),
+      mimeType: getMimeType(photo.filename),
     })
 
     response.json({
@@ -225,13 +236,72 @@ function mergeKeywords(...keywordGroups: string[][]) {
   )
 }
 
-function suggestKeywords({
+async function suggestKeywords(input: KeywordSuggestionInput) {
+  if (!aiApiKey) {
+    return suggestKeywordsFallback(input)
+  }
+
+  try {
+    const image = await fs.readFile(input.imagePath)
+    const imageUrl = `data:${input.mimeType};base64,${image.toString('base64')}`
+    const response = await fetch(`${aiBaseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${aiApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: aiModel,
+        messages: [
+          {
+            role: 'system',
+            content:
+              'Analyze the image and extract concise searchable keywords for a visual reference library. Include visible subject matter, style, mood, colors, medium, layout, and use case when clear. Return only a JSON array of 8 to 15 lowercase strings. Do not include explanations.',
+          },
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: `Existing manual keywords: ${input.existingKeywords.join(', ') || 'none'}`,
+              },
+              {
+                type: 'image_url',
+                image_url: {
+                  url: imageUrl,
+                },
+              },
+            ],
+          },
+        ],
+        temperature: 0.2,
+      }),
+    })
+
+    if (!response.ok) {
+      console.warn(`AI image keyword request failed: ${response.status}`)
+      return suggestKeywordsFallback(input)
+    }
+
+    const data = (await response.json()) as ChatCompletionResponse
+    const content = data.choices?.[0]?.message?.content
+    const keywords = parseAiKeywords(content)
+
+    if (keywords.length === 0) {
+      console.warn('AI image keyword request returned no parseable keywords')
+    }
+
+    return keywords.length > 0 ? keywords : suggestKeywordsFallback(input)
+  } catch (error) {
+    console.warn('AI image keyword request failed before completion', error)
+    return suggestKeywordsFallback(input)
+  }
+}
+
+function suggestKeywordsFallback({
   originalName,
   existingKeywords,
-}: {
-  originalName: string
-  existingKeywords: string[]
-}) {
+}: KeywordSuggestionInput) {
   const text = `${originalName} ${existingKeywords.join(' ')}`.toLowerCase()
   const suggestions = ['visual reference', 'composition', 'color palette']
 
@@ -256,6 +326,24 @@ function suggestKeywords({
   }
 
   return mergeKeywords(suggestions)
+}
+
+function getMimeType(filename: string) {
+  const extension = path.extname(filename).toLowerCase()
+
+  if (extension === '.png') {
+    return 'image/png'
+  }
+
+  if (extension === '.webp') {
+    return 'image/webp'
+  }
+
+  if (extension === '.gif') {
+    return 'image/gif'
+  }
+
+  return 'image/jpeg'
 }
 
 async function extractPromptKeywords(prompt: string) {
@@ -288,6 +376,7 @@ async function extractPromptKeywords(prompt: string) {
     })
 
     if (!response.ok) {
+      console.warn(`AI prompt keyword request failed: ${response.status}`)
       return extractPromptKeywordsFallback(prompt)
     }
 
@@ -295,8 +384,13 @@ async function extractPromptKeywords(prompt: string) {
     const content = data.choices?.[0]?.message?.content
     const keywords = parseAiKeywords(content)
 
+    if (keywords.length === 0) {
+      console.warn('AI prompt keyword request returned no parseable keywords')
+    }
+
     return keywords.length > 0 ? keywords : extractPromptKeywordsFallback(prompt)
-  } catch {
+  } catch (error) {
+    console.warn('AI prompt keyword request failed before completion', error)
     return extractPromptKeywordsFallback(prompt)
   }
 }
@@ -329,16 +423,35 @@ function parseAiKeywords(content: string | undefined) {
     return []
   }
 
-  try {
-    const parsed = JSON.parse(content) as unknown
+  const jsonContent = content
+    .trim()
+    .replace(/^```(?:json)?/i, '')
+    .replace(/```$/i, '')
+    .trim()
 
-    if (!Array.isArray(parsed)) {
-      return []
+  try {
+    const parsed = JSON.parse(jsonContent) as unknown
+
+    if (Array.isArray(parsed)) {
+      return mergeKeywords(
+        parsed.filter((keyword): keyword is string => typeof keyword === 'string'),
+      )
     }
 
-    return mergeKeywords(
-      parsed.filter((keyword): keyword is string => typeof keyword === 'string'),
-    )
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      'keywords' in parsed &&
+      Array.isArray(parsed.keywords)
+    ) {
+      return mergeKeywords(
+        parsed.keywords.filter(
+          (keyword): keyword is string => typeof keyword === 'string',
+        ),
+      )
+    }
+
+    return []
   } catch {
     return parseKeywords(content)
   }
