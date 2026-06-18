@@ -1,4 +1,6 @@
 import 'dotenv/config'
+import { createOpenAI } from '@ai-sdk/openai'
+import { generateText } from 'ai'
 import cors from 'cors'
 import express from 'express'
 import { promises as fs } from 'node:fs'
@@ -18,14 +20,6 @@ type PhotoSearchResult = Photo & {
   score: number
 }
 
-type ChatCompletionResponse = {
-  choices?: Array<{
-    message?: {
-      content?: string
-    }
-  }>
-}
-
 type KeywordSuggestionInput = {
   originalName: string
   existingKeywords: string[]
@@ -38,6 +32,12 @@ const port = Number(process.env.PORT ?? 4000)
 const aiApiKey = process.env.AI_API_KEY
 const aiBaseUrl = process.env.AI_BASE_URL ?? 'https://opencode.ai/zen/go/v1'
 const aiModel = process.env.AI_MODEL ?? 'opencode-go/qwen3.7-plus'
+const aiProvider = aiApiKey
+  ? createOpenAI({
+      apiKey: aiApiKey,
+      baseURL: aiBaseUrl,
+    })
+  : null
 const dataDir = path.resolve('data')
 const uploadsDir = path.resolve('uploads')
 const photosFile = path.join(dataDir, 'photos.json')
@@ -237,55 +237,35 @@ function mergeKeywords(...keywordGroups: string[][]) {
 }
 
 async function suggestKeywords(input: KeywordSuggestionInput) {
-  if (!aiApiKey) {
+  if (!aiProvider) {
     return suggestKeywordsFallback(input)
   }
 
   try {
     const image = await fs.readFile(input.imagePath)
     const imageUrl = `data:${input.mimeType};base64,${image.toString('base64')}`
-    const response = await fetch(`${aiBaseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${aiApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: aiModel,
-        messages: [
-          {
-            role: 'system',
-            content:
-              'Analyze the image and extract concise searchable keywords for a visual reference library. Include visible subject matter, style, mood, colors, medium, layout, and use case when clear. Return only a JSON array of 8 to 15 lowercase strings. Do not include explanations.',
-          },
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: `Existing manual keywords: ${input.existingKeywords.join(', ') || 'none'}`,
-              },
-              {
-                type: 'image_url',
-                image_url: {
-                  url: imageUrl,
-                },
-              },
-            ],
-          },
-        ],
-        temperature: 0.2,
-      }),
+    const result = await generateText({
+      model: aiProvider.chat(aiModel),
+      system:
+        'Analyze the image and extract concise searchable keywords for a visual reference library. Include visible subject matter, style, mood, colors, medium, layout, and use case when clear. Return only a JSON array of 8 to 15 lowercase strings. Do not include explanations.',
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: `Existing manual keywords: ${input.existingKeywords.join(', ') || 'none'}`,
+            },
+            {
+              type: 'image',
+              image: new URL(imageUrl),
+            },
+          ],
+        },
+      ],
+      temperature: 0.2,
     })
-
-    if (!response.ok) {
-      console.warn(`AI image keyword request failed: ${response.status}`)
-      return suggestKeywordsFallback(input)
-    }
-
-    const data = (await response.json()) as ChatCompletionResponse
-    const content = data.choices?.[0]?.message?.content
-    const keywords = parseAiKeywords(content)
+    const keywords = parseAiKeywords(result.text)
 
     if (keywords.length === 0) {
       console.warn('AI image keyword request returned no parseable keywords')
@@ -347,42 +327,19 @@ function getMimeType(filename: string) {
 }
 
 async function extractPromptKeywords(prompt: string) {
-  if (!aiApiKey) {
+  if (!aiProvider) {
     return extractPromptKeywordsFallback(prompt)
   }
 
   try {
-    const response = await fetch(`${aiBaseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${aiApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: aiModel,
-        messages: [
-          {
-            role: 'system',
-            content:
-              'Extract concise image search keywords from the user prompt. Return only a JSON array of lowercase strings. Do not include explanations.',
-          },
-          {
-            role: 'user',
-            content: prompt,
-          },
-        ],
-        temperature: 0.2,
-      }),
+    const result = await generateText({
+      model: aiProvider.chat(aiModel),
+      system:
+        'Extract concise image search keywords from the user prompt. Return only a JSON array of lowercase strings. Do not include explanations.',
+      prompt,
+      temperature: 0.2,
     })
-
-    if (!response.ok) {
-      console.warn(`AI prompt keyword request failed: ${response.status}`)
-      return extractPromptKeywordsFallback(prompt)
-    }
-
-    const data = (await response.json()) as ChatCompletionResponse
-    const content = data.choices?.[0]?.message?.content
-    const keywords = parseAiKeywords(content)
+    const keywords = parseAiKeywords(result.text)
 
     if (keywords.length === 0) {
       console.warn('AI prompt keyword request returned no parseable keywords')
