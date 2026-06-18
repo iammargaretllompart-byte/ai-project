@@ -1,0 +1,390 @@
+import 'dotenv/config'
+import cors from 'cors'
+import express from 'express'
+import { promises as fs } from 'node:fs'
+import path from 'node:path'
+import multer from 'multer'
+
+type Photo = {
+  id: string
+  originalName: string
+  filename: string
+  url: string
+  keywords: string[]
+  createdAt: string
+}
+
+type PhotoSearchResult = Photo & {
+  score: number
+}
+
+type ChatCompletionResponse = {
+  choices?: Array<{
+    message?: {
+      content?: string
+    }
+  }>
+}
+
+const app = express()
+const port = Number(process.env.PORT ?? 4000)
+const aiApiKey = process.env.AI_API_KEY
+const aiBaseUrl = process.env.AI_BASE_URL ?? 'https://opencode.ai/zen/go/v1'
+const aiModel = process.env.AI_MODEL ?? 'opencode-go/qwen3.7-plus'
+const dataDir = path.resolve('data')
+const uploadsDir = path.resolve('uploads')
+const photosFile = path.join(dataDir, 'photos.json')
+
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (_request, _file, callback) => {
+      callback(null, uploadsDir)
+    },
+    filename: (_request, file, callback) => {
+      const extension = path.extname(file.originalname)
+      callback(null, `${crypto.randomUUID()}${extension}`)
+    },
+  }),
+  fileFilter: (_request, file, callback) => {
+    if (!file.mimetype.startsWith('image/')) {
+      callback(new Error('Only image uploads are allowed'))
+      return
+    }
+
+    callback(null, true)
+  },
+})
+
+app.use(cors())
+app.use(express.json())
+app.use('/uploads', express.static(uploadsDir))
+
+app.get('/health', (_request, response) => {
+  response.json({ ok: true })
+})
+
+app.get('/photos', async (_request, response, next) => {
+  try {
+    response.json(await readPhotos())
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.get('/photos/search', async (request, response, next) => {
+  try {
+    const query = typeof request.query.q === 'string' ? request.query.q : ''
+    response.json(await searchPhotos(query))
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.post('/search', async (request, response, next) => {
+  try {
+    const prompt = typeof request.body.prompt === 'string' ? request.body.prompt : ''
+    const keywords = await extractPromptKeywords(prompt)
+
+    response.json({
+      keywords,
+      photos: await searchPhotos(keywords.join(' ')),
+    })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.post('/photos', upload.single('photo'), async (request, response, next) => {
+  try {
+    if (!request.file) {
+      response.status(400).json({ error: 'Photo file is required' })
+      return
+    }
+
+    const photos = await readPhotos()
+    const manualKeywords = parseKeywords(request.body.keywords)
+    const suggestedKeywords = suggestKeywords({
+      originalName: request.file.originalname,
+      existingKeywords: manualKeywords,
+    })
+    const photo: Photo = {
+      id: crypto.randomUUID(),
+      originalName: request.file.originalname,
+      filename: request.file.filename,
+      url: `/uploads/${request.file.filename}`,
+      keywords: mergeKeywords(manualKeywords, suggestedKeywords),
+      createdAt: new Date().toISOString(),
+    }
+
+    photos.unshift(photo)
+    await writePhotos(photos)
+
+    response.status(201).json(photo)
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.post('/photos/:id/suggest-keywords', async (request, response, next) => {
+  try {
+    const photos = await readPhotos()
+    const photo = photos.find((item) => item.id === request.params.id)
+
+    if (!photo) {
+      response.status(404).json({ error: 'Photo not found' })
+      return
+    }
+
+    const suggestedKeywords = suggestKeywords({
+      originalName: photo.originalName,
+      existingKeywords: photo.keywords,
+    })
+
+    response.json({
+      keywords: mergeKeywords(photo.keywords, suggestedKeywords),
+      suggestedKeywords,
+    })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.patch('/photos/:id/keywords', async (request, response, next) => {
+  try {
+    const photos = await readPhotos()
+    const photo = photos.find((item) => item.id === request.params.id)
+
+    if (!photo) {
+      response.status(404).json({ error: 'Photo not found' })
+      return
+    }
+
+    photo.keywords = parseKeywords(request.body.keywords)
+    await writePhotos(photos)
+
+    response.json(photo)
+  } catch (error) {
+    next(error)
+  }
+})
+
+async function ensureStorage() {
+  await fs.mkdir(dataDir, { recursive: true })
+  await fs.mkdir(uploadsDir, { recursive: true })
+
+  try {
+    await fs.access(photosFile)
+  } catch {
+    await fs.writeFile(photosFile, '[]\n')
+  }
+}
+
+async function readPhotos(): Promise<Photo[]> {
+  const content = await fs.readFile(photosFile, 'utf8')
+  return JSON.parse(content) as Photo[]
+}
+
+async function writePhotos(photos: Photo[]) {
+  await fs.writeFile(photosFile, `${JSON.stringify(photos, null, 2)}\n`)
+}
+
+async function searchPhotos(query: string) {
+  const normalizedQuery = normalizeText(query)
+  const searchTerms = parseSearchTerms(query)
+
+  if (!normalizedQuery) {
+    return []
+  }
+
+  const photos = await readPhotos()
+  const matches: PhotoSearchResult[] = photos
+    .map((photo) => ({
+      ...photo,
+      score: scorePhoto(photo.keywords, normalizedQuery, searchTerms),
+    }))
+    .filter((photo) => photo.score > 0)
+    .sort((left, right) => right.score - left.score)
+
+  return matches
+}
+
+function parseKeywords(value: unknown) {
+  if (typeof value !== 'string') {
+    return []
+  }
+
+  return value
+    .split(',')
+    .map((keyword) => keyword.trim().toLowerCase())
+    .filter(Boolean)
+}
+
+function mergeKeywords(...keywordGroups: string[][]) {
+  return Array.from(new Set(keywordGroups.flat().map((keyword) => keyword.trim()))).filter(
+    Boolean,
+  )
+}
+
+function suggestKeywords({
+  originalName,
+  existingKeywords,
+}: {
+  originalName: string
+  existingKeywords: string[]
+}) {
+  const text = `${originalName} ${existingKeywords.join(' ')}`.toLowerCase()
+  const suggestions = ['visual reference', 'composition', 'color palette']
+
+  if (text.includes('portfolio') || text.includes('website') || text.includes('web')) {
+    suggestions.push('web design', 'layout', 'digital design')
+  }
+
+  if (text.includes('minimal') || text.includes('clean')) {
+    suggestions.push('minimal', 'clean')
+  }
+
+  if (text.includes('modern')) {
+    suggestions.push('modern')
+  }
+
+  if (text.includes('photo') || text.includes('photographer')) {
+    suggestions.push('photography', 'editorial')
+  }
+
+  if (text.includes('color') || text.includes('colour')) {
+    suggestions.push('colorful')
+  }
+
+  return mergeKeywords(suggestions)
+}
+
+async function extractPromptKeywords(prompt: string) {
+  if (!aiApiKey) {
+    return extractPromptKeywordsFallback(prompt)
+  }
+
+  try {
+    const response = await fetch(`${aiBaseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${aiApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: aiModel,
+        messages: [
+          {
+            role: 'system',
+            content:
+              'Extract concise image search keywords from the user prompt. Return only a JSON array of lowercase strings. Do not include explanations.',
+          },
+          {
+            role: 'user',
+            content: prompt,
+          },
+        ],
+        temperature: 0.2,
+      }),
+    })
+
+    if (!response.ok) {
+      return extractPromptKeywordsFallback(prompt)
+    }
+
+    const data = (await response.json()) as ChatCompletionResponse
+    const content = data.choices?.[0]?.message?.content
+    const keywords = parseAiKeywords(content)
+
+    return keywords.length > 0 ? keywords : extractPromptKeywordsFallback(prompt)
+  } catch {
+    return extractPromptKeywordsFallback(prompt)
+  }
+}
+
+function extractPromptKeywordsFallback(prompt: string) {
+  const terms = parseSearchTerms(prompt)
+  const stopWords = new Set([
+    'a',
+    'an',
+    'and',
+    'for',
+    'from',
+    'i',
+    'in',
+    'need',
+    'of',
+    'on',
+    'the',
+    'to',
+    'with',
+  ])
+
+  const keywords = terms.filter((term) => !stopWords.has(term) && term.length > 2)
+
+  return mergeKeywords(keywords)
+}
+
+function parseAiKeywords(content: string | undefined) {
+  if (!content) {
+    return []
+  }
+
+  try {
+    const parsed = JSON.parse(content) as unknown
+
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+
+    return mergeKeywords(
+      parsed.filter((keyword): keyword is string => typeof keyword === 'string'),
+    )
+  } catch {
+    return parseKeywords(content)
+  }
+}
+
+function parseSearchTerms(value: string) {
+  return normalizeText(value)
+    .split(/[^a-z0-9]+/)
+    .map((term) => term.trim())
+    .filter(Boolean)
+}
+
+function normalizeText(value: string) {
+  return value.toLowerCase().trim()
+}
+
+function scorePhoto(
+  keywords: string[],
+  normalizedQuery: string,
+  searchTerms: string[],
+) {
+  return keywords.reduce((score, keyword) => {
+    const normalizedKeyword = normalizeText(keyword)
+
+    if (normalizedKeyword === normalizedQuery) {
+      return score + 10
+    }
+
+    if (normalizedQuery.includes(normalizedKeyword)) {
+      return score + 6
+    }
+
+    if (normalizedKeyword.includes(normalizedQuery)) {
+      return score + 5
+    }
+
+    const matchingTerms = searchTerms.filter(
+      (term) => normalizedKeyword.includes(term) || term.includes(normalizedKeyword),
+    )
+
+    return score + matchingTerms.length
+  }, 0)
+}
+
+await ensureStorage()
+
+app.listen(port, () => {
+  console.log(`Backend running on http://localhost:${port}`)
+})
