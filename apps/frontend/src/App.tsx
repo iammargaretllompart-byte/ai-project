@@ -29,6 +29,16 @@ type PhotoSearchResult = Photo & {
 type SearchResponse = {
   keywords: string[]
   photos: PhotoSearchResult[]
+  candidatePhotos?: PhotoSearchResult[]
+  debug?: SearchDebug
+}
+
+type SearchDebug = {
+  searches: Array<{
+    keywords: string[]
+    results: number
+  }>
+  candidatePhotoCount: number
 }
 
 function App() {
@@ -71,6 +81,7 @@ function SearchPage() {
   const [prompt, setPrompt] = useState('')
   const [results, setResults] = useState<PhotoSearchResult[]>([])
   const [keywordsUsed, setKeywordsUsed] = useState<string[]>([])
+  const [searchDebug, setSearchDebug] = useState<SearchDebug | null>(null)
   const [hasSearched, setHasSearched] = useState(false)
   const [isSearching, setIsSearching] = useState(false)
   const [message, setMessage] = useState('')
@@ -82,6 +93,7 @@ function SearchPage() {
       setMessage('Type a prompt before searching.')
       setResults([])
       setKeywordsUsed([])
+      setSearchDebug(null)
       setHasSearched(false)
       return
     }
@@ -106,10 +118,12 @@ function SearchPage() {
       const data = (await response.json()) as SearchResponse
       setKeywordsUsed(data.keywords)
       setResults(data.photos)
+      setSearchDebug(data.debug ?? null)
     } catch {
       setMessage('Could not search photos. Make sure the backend is running.')
       setResults([])
       setKeywordsUsed([])
+      setSearchDebug(null)
     } finally {
       setIsSearching(false)
     }
@@ -166,6 +180,35 @@ function SearchPage() {
                 </span>
               ))}
             </div>
+          </div>
+        ) : null}
+
+        {hasSearched && searchDebug ? (
+          <div className="mt-4 rounded-lg border border-slate-800 bg-slate-900 px-4 py-3">
+            <p className="text-sm font-medium text-slate-300">Agent search debug</p>
+            <p className="mt-1 text-sm text-slate-400">
+              Candidate photos considered: {searchDebug.candidatePhotoCount}
+            </p>
+            {searchDebug.searches.length > 0 ? (
+              <div className="mt-3 space-y-2">
+                {searchDebug.searches.map((search, index) => (
+                  <div
+                    className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-300"
+                    key={`${search.keywords.join('-')}-${index}`}
+                  >
+                    <span className="font-medium text-cyan-200">
+                      Search {index + 1}:
+                    </span>{' '}
+                    {search.keywords.join(', ')}
+                    <span className="text-slate-500"> · {search.results} results</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-2 text-sm text-slate-500">
+                No tool searches were run; fallback ranking was used.
+              </p>
+            )}
           </div>
         ) : null}
 

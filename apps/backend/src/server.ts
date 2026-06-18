@@ -1,11 +1,12 @@
 import 'dotenv/config'
 import { createOpenAI } from '@ai-sdk/openai'
-import { generateText } from 'ai'
+import { generateText, stepCountIs, tool } from 'ai'
 import cors from 'cors'
 import express from 'express'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import multer from 'multer'
+import { z } from 'zod'
 
 type Photo = {
   id: string
@@ -25,6 +26,14 @@ type KeywordSuggestionInput = {
   existingKeywords: string[]
   imagePath: string
   mimeType: string
+}
+
+type SearchDebug = {
+  searches: Array<{
+    keywords: string[]
+    results: number
+  }>
+  candidatePhotoCount: number
 }
 
 const app = express()
@@ -91,10 +100,13 @@ app.post('/search', async (request, response, next) => {
   try {
     const prompt = typeof request.body.prompt === 'string' ? request.body.prompt : ''
     const keywords = await extractPromptKeywords(prompt)
+    const agentSearch = await searchPhotosWithAgent(prompt, keywords)
 
     response.json({
       keywords,
-      photos: await searchPhotos(keywords.join(' ')),
+      photos: agentSearch.photos,
+      candidatePhotos: agentSearch.candidatePhotos,
+      debug: agentSearch.debug,
     })
   } catch (error) {
     next(error)
@@ -217,6 +229,82 @@ async function searchPhotos(query: string) {
     .sort((left, right) => right.score - left.score)
 
   return matches
+}
+
+async function searchPhotosWithAgent(prompt: string, keywords: string[]) {
+  const fallbackPhotos = await searchPhotos(keywords.join(' '))
+
+  if (!aiProvider || !prompt.trim()) {
+    return buildSearchResult(fallbackPhotos, [])
+  }
+
+  const searches: SearchDebug['searches'] = []
+  const candidatesById = new Map<string, PhotoSearchResult>()
+
+  try {
+    await generateText({
+      model: aiProvider.chat(aiModel),
+      system:
+        'You are searching a visual reference library. Use the searchImages tool with focused keyword groups that may match the user prompt. Run up to 3 searches. Do not answer with final images yet; just use the tool to gather candidates.',
+      prompt: `User prompt: ${prompt}\nInitial extracted keywords: ${keywords.join(', ')}`,
+      tools: {
+        searchImages: tool({
+          description: 'Search uploaded image references by keywords.',
+          inputSchema: z.object({
+            keywords: z.array(z.string()).min(1).max(8),
+          }),
+          execute: async ({ keywords: toolKeywords }) => {
+            const results = await searchPhotos(toolKeywords.join(' '))
+
+            for (const photo of results) {
+              const existing = candidatesById.get(photo.id)
+
+              if (!existing || photo.score > existing.score) {
+                candidatesById.set(photo.id, photo)
+              }
+            }
+
+            searches.push({
+              keywords: toolKeywords,
+              results: results.length,
+            })
+
+            return results.slice(0, 8).map((photo) => ({
+              id: photo.id,
+              originalName: photo.originalName,
+              keywords: photo.keywords,
+              score: photo.score,
+            }))
+          },
+        }),
+      },
+      stopWhen: stepCountIs(4),
+      temperature: 0.2,
+    })
+  } catch (error) {
+    console.warn('AI search tool flow failed before completion', error)
+    return buildSearchResult(fallbackPhotos, [])
+  }
+
+  const candidatePhotos = Array.from(candidatesById.values()).sort(
+    (left, right) => right.score - left.score,
+  )
+
+  return buildSearchResult(candidatePhotos.length > 0 ? candidatePhotos : fallbackPhotos, searches)
+}
+
+function buildSearchResult(
+  photos: PhotoSearchResult[],
+  searches: SearchDebug['searches'],
+) {
+  return {
+    photos,
+    candidatePhotos: photos,
+    debug: {
+      searches,
+      candidatePhotoCount: photos.length,
+    },
+  }
 }
 
 function parseKeywords(value: unknown) {
