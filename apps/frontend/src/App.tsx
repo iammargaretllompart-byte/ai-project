@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import {
+  ArrowLeft,
   ArrowRight,
   ImagePlus,
   LoaderCircle,
@@ -8,7 +9,6 @@ import {
   Search,
   Sparkles,
   Upload,
-  X,
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -250,16 +250,16 @@ function SearchPage() {
         >
           <header className="sticky top-0 z-10 border-b border-slate-800 bg-slate-950/95 px-5 py-4 backdrop-blur sm:px-8">
             <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
-              <div className="min-w-0">
+              <Button variant="outline" onClick={closeSearch}>
+                <ArrowLeft className="mr-2 h-4 w-4" />
+                Back to search
+              </Button>
+              <div className="min-w-0 text-right">
                 <p className="text-xs font-medium uppercase tracking-[0.25em] text-cyan-300">
                   Visual Search
                 </p>
                 <p className="mt-1 truncate text-sm text-slate-400">{prompt}</p>
               </div>
-              <Button variant="outline" onClick={closeSearch}>
-                <X className="mr-2 h-4 w-4" />
-                Back to search
-              </Button>
             </div>
           </header>
 
