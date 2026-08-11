@@ -24,6 +24,7 @@ type Photo = {
 
 type PhotoSearchResult = Photo & {
   score: number
+  selectionReason?: string
 }
 
 type SearchResponse = {
@@ -39,6 +40,13 @@ type SearchDebug = {
     results: number
   }>
   candidatePhotoCount: number
+  selectedPhotoCount: number
+  selectionMethod: 'ai' | 'score-fallback'
+  timingsMs: {
+    search: number
+    selection: number
+    total: number
+  }
 }
 
 function App() {
@@ -140,8 +148,8 @@ function SearchPage() {
             Find image references from your admin library.
           </h1>
           <p className="mt-5 max-w-2xl text-slate-300">
-            Type a prompt using the style, content, or mood you want. For now,
-            this searches the manual keywords you added in admin.
+            Describe the style, content, or mood you want. The agent searches
+            your library, reviews the candidates, and selects the best references.
           </p>
 
           <form
@@ -189,6 +197,17 @@ function SearchPage() {
             <p className="mt-1 text-sm text-slate-400">
               Candidate photos considered: {searchDebug.candidatePhotoCount}
             </p>
+            <p className="mt-1 text-sm text-slate-400">
+              Final photos selected: {searchDebug.selectedPhotoCount} ·{' '}
+              {searchDebug.selectionMethod === 'ai'
+                ? 'Selected visually by AI'
+                : 'Selected by score fallback'}
+            </p>
+            <p className="mt-1 text-sm text-slate-400">
+              Timing: search {(searchDebug.timingsMs.search / 1000).toFixed(1)}s · selection{' '}
+              {(searchDebug.timingsMs.selection / 1000).toFixed(1)}s · total{' '}
+              {(searchDebug.timingsMs.total / 1000).toFixed(1)}s
+            </p>
             {searchDebug.searches.length > 0 ? (
               <div className="mt-3 space-y-2">
                 {searchDebug.searches.map((search, index) => (
@@ -214,7 +233,7 @@ function SearchPage() {
 
         <section className="mt-8">
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-xl font-semibold">Matched references</h2>
+            <h2 className="text-xl font-semibold">Selected references</h2>
             <span className="text-sm text-slate-400">
               {hasSearched ? `${results.length} found` : 'Search to begin'}
             </span>
@@ -251,6 +270,16 @@ function SearchPage() {
                   <p className="text-sm font-medium text-cyan-200">
                     Match score: {photo.score}
                   </p>
+                  {photo.selectionReason ? (
+                    <div className="rounded-lg border border-cyan-300/20 bg-cyan-300/5 p-3">
+                      <p className="text-xs font-medium uppercase tracking-wider text-cyan-300">
+                        Why it was selected
+                      </p>
+                      <p className="mt-1 text-sm leading-6 text-slate-300">
+                        {photo.selectionReason}
+                      </p>
+                    </div>
+                  ) : null}
                   <div className="flex flex-wrap gap-2">
                     {photo.keywords.map((keyword) => (
                       <span
