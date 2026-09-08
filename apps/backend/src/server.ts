@@ -217,6 +217,44 @@ app.patch('/photos/:id/keywords', async (request, response, next) => {
   }
 })
 
+app.delete('/photos', async (request, response, next) => {
+  try {
+    const result = z
+      .object({ ids: z.array(z.string()).min(1) })
+      .safeParse(request.body)
+
+    if (!result.success) {
+      response.status(400).json({ error: 'At least one photo ID is required' })
+      return
+    }
+
+    const ids = new Set(result.data.ids)
+    const photos = await readPhotos()
+    const deletedPhotos = photos.filter((photo) => ids.has(photo.id))
+
+    if (deletedPhotos.length === 0) {
+      response.status(404).json({ error: 'No matching photos found' })
+      return
+    }
+
+    await writePhotos(photos.filter((photo) => !ids.has(photo.id)))
+
+    await Promise.all(
+      deletedPhotos.map(async (photo) => {
+        try {
+          await fs.rm(path.join(uploadsDir, photo.filename), { force: true })
+        } catch (error) {
+          console.warn(`Could not remove uploaded file ${photo.filename}`, error)
+        }
+      }),
+    )
+
+    response.json({ deletedIds: deletedPhotos.map((photo) => photo.id) })
+  } catch (error) {
+    next(error)
+  }
+})
+
 async function ensureStorage() {
   await fs.mkdir(dataDir, { recursive: true })
   await fs.mkdir(uploadsDir, { recursive: true })
