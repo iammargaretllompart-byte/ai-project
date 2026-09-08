@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ai-sdk/openai": "^3.0.73",
+    "@ai-sdk/anthropic": "^3.0.116",
     "ai": "^6.0.208",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",

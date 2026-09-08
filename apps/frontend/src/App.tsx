@@ -10,6 +10,8 @@ import {
   Sparkles,
   Trash2,
   Upload,
+  UserRound,
+  X,
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -44,7 +46,7 @@ type SearchDebug = {
   }>
   candidatePhotoCount: number
   selectedPhotoCount: number
-  selectionMethod: 'ai' | 'score-fallback'
+  selectionMethod: 'ai'
   timingsMs: {
     search: number
     selection: number
@@ -64,7 +66,7 @@ function App() {
   return (
     <main className="app-canvas min-h-screen text-white">
       <section className="mx-auto flex min-h-screen max-w-5xl flex-col items-center justify-center px-6 py-20 text-center">
-        <p className="mb-4 rounded-full border border-cyan-400/30 bg-cyan-400/10 px-4 py-1 text-sm font-medium text-cyan-200">
+        <p className="mb-4 rounded-full border border-[#FF6A38]/30 bg-[#FF6A38]/10 px-4 py-1 text-sm font-medium text-[#ffb39a]">
           Vite + React + TypeScript + Tailwind + shadcn/ui
         </p>
         <h1 className="max-w-3xl text-5xl font-bold tracking-tight sm:text-7xl">
@@ -85,6 +87,20 @@ function App() {
         </div>
       </section>
     </main>
+  )
+}
+
+function AdminAccess() {
+  return (
+    <Button
+      asChild
+      className="h-11 w-11 rounded-full border-white/15 bg-white/[0.05] p-0 shadow-lg shadow-black/20"
+      variant="outline"
+    >
+      <a aria-label="Open admin" href="/admin" title="Open admin">
+        <UserRound className="h-5 w-5" />
+      </a>
+    </Button>
   )
 }
 
@@ -165,7 +181,8 @@ function SearchPage() {
       })
 
       if (!response.ok) {
-        throw new Error('Could not search photos')
+        const data = (await response.json().catch(() => null)) as { error?: string } | null
+        throw new Error(data?.error ?? 'Could not search photos')
       }
 
       const data = (await response.json()) as SearchResponse
@@ -182,7 +199,11 @@ function SearchPage() {
         return
       }
 
-      setMessage('Could not search photos. Make sure the backend is running.')
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : 'Could not complete the AI search.',
+      )
       setResults([])
       setKeywordsUsed([])
       setSearchDebug(null)
@@ -208,9 +229,12 @@ function SearchPage() {
 
   return (
     <main className="app-canvas min-h-screen px-6 py-8 text-white">
-      <div className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-6xl items-center">
+      <nav aria-label="Account" className="mx-auto flex max-w-6xl justify-end">
+        <AdminAccess />
+      </nav>
+      <div className="mx-auto flex min-h-[calc(100vh-7.75rem)] max-w-6xl items-center">
         <section className="glass-surface w-full rounded-3xl bg-white/[0.04] p-6 sm:p-10">
-          <p className="text-sm font-medium uppercase tracking-[0.3em] text-cyan-300">
+          <p className="text-sm font-medium uppercase tracking-[0.3em] text-[#FF6A38]">
             Visual Search
           </p>
           <h1 className="mt-4 max-w-3xl text-4xl font-bold tracking-tight sm:text-6xl">
@@ -226,7 +250,7 @@ function SearchPage() {
             onSubmit={(event) => void searchPhotos(event)}
           >
             <textarea
-              className="min-h-28 rounded-2xl border border-white/15 bg-black/30 px-4 py-3 text-base text-white outline-none ring-cyan-300/40 placeholder:text-neutral-500 focus:ring-2"
+              className="min-h-28 rounded-2xl border border-white/15 bg-black/30 px-4 py-3 text-base text-white outline-none ring-[#FF6A38]/40 placeholder:text-neutral-500 focus:ring-2"
               placeholder="Example: modern web design portfolio with colorful minimal style"
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
@@ -255,11 +279,14 @@ function SearchPage() {
                 <ArrowLeft className="mr-2 h-4 w-4" />
                 Back to search
               </Button>
-              <div className="min-w-0 text-right">
-                <p className="text-xs font-medium uppercase tracking-[0.25em] text-cyan-300">
-                  Visual Search
-                </p>
-                <p className="mt-1 truncate text-sm text-neutral-400">{prompt}</p>
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="min-w-0 text-right">
+                  <p className="text-xs font-medium uppercase tracking-[0.25em] text-[#FF6A38]">
+                    Visual Search
+                  </p>
+                  <p className="mt-1 truncate text-sm text-neutral-400">{prompt}</p>
+                </div>
+                <AdminAccess />
               </div>
             </div>
           </header>
@@ -267,11 +294,11 @@ function SearchPage() {
           {isSearching ? (
             <div className="mx-auto flex min-h-[calc(100vh-73px)] max-w-3xl flex-col items-center justify-center px-6 py-16 text-center">
               <div className="relative flex h-28 w-28 items-center justify-center">
-                <div className="absolute inset-0 animate-ping rounded-full bg-cyan-300/10" />
-                <div className="absolute inset-3 rounded-full border border-cyan-300/20 bg-cyan-300/5" />
-                <LoaderCircle className="relative h-10 w-10 animate-spin text-cyan-300" />
+                <div className="absolute inset-0 animate-ping rounded-full bg-[#FF6A38]/10" />
+                <div className="absolute inset-3 rounded-full border border-[#FF6A38]/20 bg-[#FF6A38]/5" />
+                <LoaderCircle className="relative h-10 w-10 animate-spin text-[#FF6A38]" />
               </div>
-              <p className="mt-8 text-sm font-medium uppercase tracking-[0.3em] text-cyan-300">
+              <p className="mt-8 text-sm font-medium uppercase tracking-[0.3em] text-[#FF6A38]">
                 Agent at work
               </p>
               <h2 className="mt-4 text-3xl font-bold tracking-tight sm:text-5xl">
@@ -285,7 +312,7 @@ function SearchPage() {
                   <span
                     aria-label={loadingMessage}
                     className={`h-1.5 rounded-full transition-all duration-500 ${
-                      index === loadingStep ? 'w-10 bg-cyan-300' : 'w-4 bg-neutral-700'
+                      index === loadingStep ? 'w-10 bg-[#FF6A38]' : 'w-4 bg-neutral-700'
                     }`}
                     key={loadingMessage}
                   />
@@ -320,7 +347,7 @@ function SearchPage() {
                 <>
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                     <div>
-                      <p className="text-sm font-medium uppercase tracking-[0.25em] text-cyan-300">
+                      <p className="text-sm font-medium uppercase tracking-[0.25em] text-[#FF6A38]">
                         Curated by AI
                       </p>
                       <h2 className="mt-2 text-3xl font-bold tracking-tight sm:text-5xl">
@@ -346,8 +373,8 @@ function SearchPage() {
                         <div className="space-y-4 p-5">
                           <h3 className="line-clamp-2 font-medium">{photo.originalName}</h3>
                           {photo.selectionReason ? (
-                            <div className="rounded-lg border border-cyan-300/20 bg-cyan-300/5 p-3">
-                              <p className="text-xs font-medium uppercase tracking-wider text-cyan-300">
+                            <div className="rounded-lg border border-[#FF6A38]/20 bg-[#FF6A38]/5 p-3">
+                              <p className="text-xs font-medium uppercase tracking-wider text-[#FF6A38]">
                                 Why it was selected
                               </p>
                               <p className="mt-1 text-sm leading-6 text-neutral-300">
@@ -358,7 +385,7 @@ function SearchPage() {
                           <div className="flex flex-wrap gap-2">
                             {photo.keywords.map((keyword) => (
                               <span
-                                className="rounded-full bg-cyan-300/10 px-2.5 py-1 text-xs font-medium text-cyan-200"
+                                className="rounded-full bg-[#FF6A38]/10 px-2.5 py-1 text-xs font-medium text-[#ffb39a]"
                                 key={keyword}
                               >
                                 {keyword}
@@ -614,9 +641,32 @@ function AdminPage() {
   return (
     <main className="app-canvas min-h-screen px-6 py-8 text-white">
       <div className="mx-auto max-w-6xl">
+        <nav
+          aria-label="Breadcrumb"
+          className="mb-8 flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-5"
+        >
+          <div className="flex items-center gap-2 text-sm text-neutral-400">
+            <a className="transition-colors hover:text-white" href="/search">
+              Visual Search
+            </a>
+            <span aria-hidden="true" className="text-neutral-600">
+              /
+            </span>
+            <span aria-current="page" className="text-[#FF6A38]">
+              Admin
+            </span>
+          </div>
+          <Button asChild variant="outline">
+            <a href="/search">
+              <X className="mr-2 h-4 w-4" />
+              Exit admin
+            </a>
+          </Button>
+        </nav>
+
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <p className="text-sm font-medium uppercase tracking-[0.3em] text-cyan-300">
+            <p className="text-sm font-medium uppercase tracking-[0.3em] text-[#FF6A38]">
               Admin
             </p>
             <h1 className="mt-3 text-4xl font-bold tracking-tight">
@@ -638,7 +688,7 @@ function AdminPage() {
           onSubmit={(event) => void uploadPhoto(event)}
         >
           <div className="flex items-center gap-3">
-            <div className="rounded-xl bg-cyan-300 p-2 text-black">
+            <div className="rounded-xl bg-[#FF6A38] p-2 text-black">
               <ImagePlus className="h-5 w-5" />
             </div>
             <div>
@@ -652,14 +702,14 @@ function AdminPage() {
           <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_1fr_auto]">
             <input
               accept="image/*"
-              className="rounded-lg border border-white/15 bg-black/30 px-3 py-2 text-sm text-neutral-200 file:mr-4 file:rounded-md file:border-0 file:bg-cyan-300 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-black"
+              className="rounded-lg border border-white/15 bg-black/30 px-3 py-2 text-sm text-neutral-200 file:mr-4 file:rounded-md file:border-0 file:bg-[#FF6A38] file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-black"
               type="file"
               onChange={(event) =>
                 setSelectedFile(event.target.files?.[0] ?? null)
               }
             />
             <input
-              className="rounded-lg border border-white/15 bg-black/30 px-3 py-2 text-sm text-white outline-none ring-cyan-300/40 placeholder:text-neutral-500 focus:ring-2"
+              className="rounded-lg border border-white/15 bg-black/30 px-3 py-2 text-sm text-white outline-none ring-[#FF6A38]/40 placeholder:text-neutral-500 focus:ring-2"
               placeholder="Optional: kitchen, marble, warm light"
               value={uploadKeywords}
               onChange={(event) => setUploadKeywords(event.target.value)}
@@ -688,7 +738,7 @@ function AdminPage() {
                 <label className="flex cursor-pointer items-center gap-2 text-sm text-neutral-300">
                   <input
                     checked={selectedPhotoIds.length === photos.length}
-                    className="h-4 w-4 accent-cyan-300"
+                    className="h-4 w-4 accent-[#FF6A38]"
                     type="checkbox"
                     onChange={toggleAllPhotos}
                   />
@@ -725,7 +775,7 @@ function AdminPage() {
               <article
                 className={`glass-surface overflow-hidden rounded-2xl ${
                   selectedPhotoIds.includes(photo.id)
-                    ? 'border-cyan-300 ring-1 ring-cyan-300'
+                    ? 'border-[#FF6A38] ring-1 ring-[#FF6A38]'
                     : 'border-white/10'
                 }`}
                 key={photo.id}
@@ -739,7 +789,7 @@ function AdminPage() {
                   <label className="absolute left-3 top-3 flex cursor-pointer items-center gap-2 rounded-lg border border-white/10 bg-black/75 px-3 py-2 text-sm text-white shadow-lg backdrop-blur-xl">
                     <input
                       checked={selectedPhotoIds.includes(photo.id)}
-                      className="h-4 w-4 accent-cyan-300"
+                      className="h-4 w-4 accent-[#FF6A38]"
                       type="checkbox"
                       onChange={() => togglePhotoSelection(photo.id)}
                     />
@@ -759,7 +809,7 @@ function AdminPage() {
                   <div className="flex flex-wrap gap-2">
                     {photo.keywords.map((keyword) => (
                       <span
-                        className="rounded-full bg-cyan-300/10 px-2.5 py-1 text-xs font-medium text-cyan-200"
+                        className="rounded-full bg-[#FF6A38]/10 px-2.5 py-1 text-xs font-medium text-[#ffb39a]"
                         key={keyword}
                       >
                         {keyword}
@@ -775,7 +825,7 @@ function AdminPage() {
                       Edit keywords
                     </label>
                     <textarea
-                      className="min-h-20 w-full rounded-lg border border-white/15 bg-black/30 px-3 py-2 text-sm text-white outline-none ring-cyan-300/40 placeholder:text-neutral-500 focus:ring-2"
+                      className="min-h-20 w-full rounded-lg border border-white/15 bg-black/30 px-3 py-2 text-sm text-white outline-none ring-[#FF6A38]/40 placeholder:text-neutral-500 focus:ring-2"
                       id={`keywords-${photo.id}`}
                       value={editingKeywords[photo.id] ?? ''}
                       onChange={(event) =>

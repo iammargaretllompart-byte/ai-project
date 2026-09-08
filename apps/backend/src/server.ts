@@ -1,5 +1,5 @@
 import 'dotenv/config'
-import { createOpenAI } from '@ai-sdk/openai'
+import { createAnthropic } from '@ai-sdk/anthropic'
 import { generateText, stepCountIs, tool, type UserContent } from 'ai'
 import cors from 'cors'
 import express from 'express'
@@ -39,7 +39,7 @@ type SearchDebug = {
   }>
   candidatePhotoCount: number
   selectedPhotoCount: number
-  selectionMethod: 'ai' | 'score-fallback'
+  selectionMethod: 'ai'
   timingsMs: {
     search: number
     selection: number
@@ -52,12 +52,6 @@ const port = Number(process.env.PORT ?? 4000)
 const aiApiKey = process.env.AI_API_KEY
 const aiBaseUrl = process.env.AI_BASE_URL ?? 'https://opencode.ai/zen/go/v1'
 const aiModel = process.env.AI_MODEL ?? 'qwen3.7-plus'
-const aiProvider = aiApiKey
-  ? createOpenAI({
-      apiKey: aiApiKey,
-      baseURL: aiBaseUrl,
-    })
-  : null
 const dataDir = path.resolve('data')
 const uploadsDir = path.resolve('uploads')
 const photosFile = path.join(dataDir, 'photos.json')
@@ -107,15 +101,27 @@ app.get('/photos/search', async (request, response, next) => {
   }
 })
 
-app.post('/search', async (request, response, next) => {
+app.post('/search', async (request, response) => {
   try {
     const totalStartedAt = performance.now()
     const prompt = typeof request.body.prompt === 'string' ? request.body.prompt : ''
+
+    if (!prompt.trim()) {
+      response.status(400).json({ error: 'A search prompt is required' })
+      return
+    }
+
+    if (!aiApiKey) {
+      response.status(503).json({ error: 'AI search is not configured' })
+      return
+    }
+
+    const sessionId = crypto.randomUUID()
     const searchStartedAt = performance.now()
-    const agentSearch = await searchPhotosWithAgent(prompt)
+    const agentSearch = await searchPhotosWithAgent(prompt, sessionId)
     const searchDuration = performance.now() - searchStartedAt
     const selectionStartedAt = performance.now()
-    const selection = await selectFinalPhotos(prompt, agentSearch.candidatePhotos)
+    const selection = await selectFinalPhotos(prompt, agentSearch.candidatePhotos, sessionId)
     const selectionDuration = performance.now() - selectionStartedAt
 
     response.json({
@@ -135,7 +141,10 @@ app.post('/search', async (request, response, next) => {
       },
     })
   } catch (error) {
-    next(error)
+    console.error('AI search failed', error)
+    response.status(502).json({
+      error: 'AI search failed. No fallback results were returned.',
+    })
   }
 })
 
@@ -295,202 +304,173 @@ async function searchPhotos(query: string) {
   return matches
 }
 
-async function searchPhotosWithAgent(prompt: string) {
-  const fallbackKeywords = extractPromptKeywordsLocally(prompt)
-  const fallbackPhotos = await searchPhotos(fallbackKeywords.join(' '))
-
-  if (!aiProvider || !prompt.trim()) {
-    return buildSearchResult(fallbackPhotos, [], fallbackKeywords)
-  }
-
+async function searchPhotosWithAgent(prompt: string, sessionId: string) {
   const searches: SearchDebug['searches'] = []
   const candidatesById = new Map<string, PhotoSearchResult>()
 
-  try {
-    await generateText({
-      model: aiProvider.chat(aiModel),
-      system:
-        'You are searching a visual reference library. Use the searchImages tool with focused keyword groups that may match the user prompt. Run no more than 2 searches. Do not answer with final images yet; just use the tool to gather candidates.',
-      prompt: `User prompt: ${prompt}`,
-      tools: {
-        searchImages: tool({
-          description: 'Search uploaded image references by keywords.',
-          inputSchema: z.object({
-            keywords: z.array(z.string()).min(1).max(8),
-          }),
-          execute: async ({ keywords: toolKeywords }) => {
-            if (searches.length >= 2) {
-              return []
-            }
-
-            const results = await searchPhotos(toolKeywords.join(' '))
-
-            for (const photo of results) {
-              const existing = candidatesById.get(photo.id)
-
-              if (!existing || photo.score > existing.score) {
-                candidatesById.set(photo.id, photo)
-              }
-            }
-
-            searches.push({
-              keywords: toolKeywords,
-              results: results.length,
-            })
-
-            return results.slice(0, 8).map((photo) => ({
-              id: photo.id,
-              originalName: photo.originalName,
-              keywords: photo.keywords,
-              score: photo.score,
-            }))
-          },
+  await generateText({
+    model: createAiModel(sessionId),
+    system:
+      'You are searching a visual reference library. Use the searchImages tool with focused keyword groups that may match the user prompt. Run exactly 2 searches with complementary terms. Do not answer with final images yet; just use the tool to gather candidates.',
+    prompt: `User prompt: ${prompt}`,
+    tools: {
+      searchImages: tool({
+        description: 'Search uploaded image references by keywords.',
+        inputSchema: z.object({
+          keywords: z.array(z.string()).min(1).max(8),
         }),
-      },
-      stopWhen: [stepCountIs(3), () => searches.length >= 2],
-      temperature: 0.2,
-    })
-  } catch (error) {
-    console.warn('AI search tool flow failed before completion', error)
-    return buildSearchResult(fallbackPhotos, [], fallbackKeywords)
+        execute: async ({ keywords: toolKeywords }) => {
+          if (searches.length >= 2) {
+            return []
+          }
+
+          const results = await searchPhotos(toolKeywords.join(' '))
+
+          for (const photo of results) {
+            const existing = candidatesById.get(photo.id)
+
+            if (!existing || photo.score > existing.score) {
+              candidatesById.set(photo.id, photo)
+            }
+          }
+
+          searches.push({
+            keywords: toolKeywords,
+            results: results.length,
+          })
+
+          return results.slice(0, 8).map((photo) => ({
+            id: photo.id,
+            originalName: photo.originalName,
+            keywords: photo.keywords,
+            score: photo.score,
+          }))
+        },
+      }),
+    },
+    stopWhen: [stepCountIs(3), () => searches.length >= 2],
+    temperature: 0.2,
+  })
+
+  if (searches.length === 0) {
+    throw new Error('AI search completed without using the search tool')
   }
 
   const candidatePhotos = Array.from(candidatesById.values()).sort(
     (left, right) => right.score - left.score,
   )
 
-  const keywords =
-    searches.length > 0
-      ? mergeKeywords(searches.flatMap((search) => search.keywords))
-      : fallbackKeywords
-
-  return buildSearchResult(
-    candidatePhotos.length > 0 ? candidatePhotos : fallbackPhotos,
-    searches,
-    keywords,
-  )
+  return {
+    keywords: mergeKeywords(searches.flatMap((search) => search.keywords)),
+    candidatePhotos,
+    debug: {
+      searches,
+      candidatePhotoCount: candidatePhotos.length,
+    },
+  }
 }
 
-async function selectFinalPhotos(prompt: string, candidates: PhotoSearchResult[]) {
+async function selectFinalPhotos(
+  prompt: string,
+  candidates: PhotoSearchResult[],
+  sessionId: string,
+) {
   const limitedCandidates = candidates.slice(0, 4)
 
-  if (!aiProvider || limitedCandidates.length === 0) {
-    return buildFallbackSelection(limitedCandidates)
+  if (limitedCandidates.length === 0) {
+    return { photos: [], method: 'ai' as const }
   }
 
   const selectedPhotos: SelectedPhoto[] = []
 
-  try {
-    const content: UserContent = [
-      {
-        type: 'text',
-        text: `Original user prompt: ${prompt}\nAnalyze the following candidate images and select up to 3 that best satisfy the prompt. Consider visual content, style, mood, composition, and usefulness as references.`,
-      },
-    ]
-
-    for (const candidate of limitedCandidates) {
-      const image = await fs.readFile(path.join(uploadsDir, candidate.filename))
-      const imageUrl = `data:${getMimeType(candidate.filename)};base64,${image.toString('base64')}`
-
-      content.push({
-        type: 'text',
-        text: `Candidate ID: ${candidate.id}\nFilename: ${candidate.originalName}\nKeywords: ${candidate.keywords.join(', ')}`,
-      })
-      content.push({
-        type: 'image',
-        image: new URL(imageUrl),
-      })
-    }
-
-    await generateText({
-      model: aiProvider.chat(aiModel),
-      system:
-        'You select the best visual references from provided candidate images. You must call selectImages exactly once with up to 3 valid candidate IDs and a short, user-friendly reason for each selection.',
-      messages: [{ role: 'user', content }],
-      tools: {
-        selectImages: tool({
-          description: 'Select the final images to return to the user.',
-          inputSchema: z.object({
-            selections: z
-              .array(
-                z.object({
-                  id: z.string(),
-                  reason: z.string().min(1).max(240),
-                }),
-              )
-              .min(1)
-              .max(3),
-          }),
-          execute: async ({ selections }) => {
-            for (const selection of selections) {
-              const photo = limitedCandidates.find((item) => item.id === selection.id)
-
-              if (photo && !selectedPhotos.some((item) => item.id === photo.id)) {
-                selectedPhotos.push({
-                  ...photo,
-                  selectionReason: selection.reason,
-                })
-              }
-            }
-
-            return {
-              selectedIds: selectedPhotos.map((photo) => photo.id),
-            }
-          },
-        }),
-      },
-      toolChoice: { type: 'tool', toolName: 'selectImages' },
-      stopWhen: stepCountIs(1),
-      timeout: 90_000,
-      temperature: 0.2,
-    })
-
-    if (selectedPhotos.length === 0) {
-      console.warn('AI image selection returned no valid photo IDs')
-      return buildFallbackSelection(limitedCandidates)
-    }
-
-    return {
-      photos: selectedPhotos,
-      method: 'ai' as const,
-    }
-  } catch (error) {
-    console.warn('AI image selection failed before completion', error)
-    return buildFallbackSelection(limitedCandidates)
-  }
-}
-
-function buildFallbackSelection(candidates: PhotoSearchResult[]) {
-  return {
-    photos: candidates.slice(0, 3).map((photo) => ({
-      ...photo,
-      selectionReason: 'Selected from the strongest keyword matches.',
-    })),
-    method: 'score-fallback' as const,
-  }
-}
-
-function buildSearchResult(
-  photos: PhotoSearchResult[],
-  searches: SearchDebug['searches'],
-  keywords: string[],
-) {
-  return {
-    keywords,
-    photos,
-    candidatePhotos: photos,
-    debug: {
-      searches,
-      candidatePhotoCount: photos.length,
-      selectedPhotoCount: 0,
-      selectionMethod: 'score-fallback' as const,
-      timingsMs: {
-        search: 0,
-        selection: 0,
-        total: 0,
-      },
+  const content: UserContent = [
+    {
+      type: 'text',
+      text: `Original user prompt: ${prompt}\nAnalyze the following candidate images and select up to 3 that best satisfy the prompt. Consider visual content, style, mood, composition, and usefulness as references.`,
     },
+  ]
+
+  for (const candidate of limitedCandidates) {
+    const image = await fs.readFile(path.join(uploadsDir, candidate.filename))
+    const imageUrl = `data:${getMimeType(candidate.filename)};base64,${image.toString('base64')}`
+
+    content.push({
+      type: 'text',
+      text: `Candidate ID: ${candidate.id}\nFilename: ${candidate.originalName}\nKeywords: ${candidate.keywords.join(', ')}`,
+    })
+    content.push({
+      type: 'image',
+      image: new URL(imageUrl),
+    })
   }
+
+  await generateText({
+    model: createAiModel(sessionId),
+    system:
+      'You select the best visual references from provided candidate images. You must call selectImages exactly once with up to 3 valid candidate IDs and a short, user-friendly reason for each selection.',
+    messages: [{ role: 'user', content }],
+    tools: {
+      selectImages: tool({
+        description: 'Select the final images to return to the user.',
+        inputSchema: z.object({
+          selections: z
+            .array(
+              z.object({
+                id: z.string(),
+                reason: z.string().min(1).max(240),
+              }),
+            )
+            .min(1)
+            .max(3),
+        }),
+        execute: async ({ selections }) => {
+          for (const selection of selections) {
+            const photo = limitedCandidates.find((item) => item.id === selection.id)
+
+            if (photo && !selectedPhotos.some((item) => item.id === photo.id)) {
+              selectedPhotos.push({
+                ...photo,
+                selectionReason: selection.reason,
+              })
+            }
+          }
+
+          return {
+            selectedIds: selectedPhotos.map((photo) => photo.id),
+          }
+        },
+      }),
+    },
+    stopWhen: stepCountIs(1),
+    timeout: 90_000,
+    temperature: 0.2,
+  })
+
+  if (selectedPhotos.length === 0) {
+    throw new Error('AI image selection returned no valid photo IDs')
+  }
+
+  return {
+    photos: selectedPhotos,
+    method: 'ai' as const,
+  }
+}
+
+function createAiModel(sessionId: string) {
+  if (!aiApiKey) {
+    throw new Error('AI_API_KEY is not configured')
+  }
+
+  const provider = createAnthropic({
+    apiKey: aiApiKey,
+    baseURL: aiBaseUrl,
+    headers: {
+      'user-agent': 'visual-reference-library/1.0',
+      'x-opencode-session': sessionId,
+    },
+  })
+
+  return provider(aiModel)
 }
 
 function parseKeywords(value: unknown) {
@@ -511,7 +491,7 @@ function mergeKeywords(...keywordGroups: string[][]) {
 }
 
 async function suggestKeywords(input: KeywordSuggestionInput) {
-  if (!aiProvider) {
+  if (!aiApiKey) {
     return suggestKeywordsFallback(input)
   }
 
@@ -519,7 +499,7 @@ async function suggestKeywords(input: KeywordSuggestionInput) {
     const image = await fs.readFile(input.imagePath)
     const imageUrl = `data:${input.mimeType};base64,${image.toString('base64')}`
     const result = await generateText({
-      model: aiProvider.chat(aiModel),
+      model: createAiModel(crypto.randomUUID()),
       system:
         'Analyze the image and extract concise searchable keywords for a visual reference library. Include visible subject matter, style, mood, colors, medium, layout, and use case when clear. Return only a JSON array of 8 to 15 lowercase strings. Do not include explanations.',
       messages: [
@@ -598,29 +578,6 @@ function getMimeType(filename: string) {
   }
 
   return 'image/jpeg'
-}
-
-function extractPromptKeywordsLocally(prompt: string) {
-  const terms = parseSearchTerms(prompt)
-  const stopWords = new Set([
-    'a',
-    'an',
-    'and',
-    'for',
-    'from',
-    'i',
-    'in',
-    'need',
-    'of',
-    'on',
-    'the',
-    'to',
-    'with',
-  ])
-
-  const keywords = terms.filter((term) => !stopWords.has(term) && term.length > 2)
-
-  return mergeKeywords(keywords)
 }
 
 function parseAiKeywords(content: string | undefined) {
