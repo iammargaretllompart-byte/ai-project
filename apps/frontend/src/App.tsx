@@ -79,6 +79,48 @@ type UploadToast = {
   message: string
 }
 
+let uploadAudioContext: AudioContext | null = null
+
+function getUploadAudioContext() {
+  uploadAudioContext ??= new AudioContext()
+  return uploadAudioContext
+}
+
+function unlockUploadToastSounds() {
+  const audioContext = getUploadAudioContext()
+  if (audioContext.state === 'suspended') {
+    void audioContext.resume()
+  }
+}
+
+function playUploadToastSound(kind: UploadToast['kind']) {
+  const audioContext = getUploadAudioContext()
+
+  void audioContext.resume().then(() => {
+    const startTime = audioContext.currentTime
+    const frequencies = kind === 'success' ? [659.25, 783.99] : [392, 293.66]
+
+    frequencies.forEach((frequency, index) => {
+      const oscillator = audioContext.createOscillator()
+      const gain = audioContext.createGain()
+      const noteStart = startTime + index * 0.12
+      const noteEnd = noteStart + 0.22
+
+      oscillator.type = kind === 'success' ? 'sine' : 'triangle'
+      oscillator.frequency.value = frequency
+      gain.gain.setValueAtTime(0.0001, noteStart)
+      gain.gain.exponentialRampToValueAtTime(0.12, noteStart + 0.02)
+      gain.gain.exponentialRampToValueAtTime(0.0001, noteEnd)
+      oscillator.connect(gain)
+      gain.connect(audioContext.destination)
+      oscillator.start(noteStart)
+      oscillator.stop(noteEnd)
+    })
+  }).catch(() => {
+    // Browsers can suppress notification audio until the user interacts with the page.
+  })
+}
+
 function App() {
   let page
 
@@ -147,6 +189,7 @@ function UploadActivity() {
       localStorage.removeItem(activeUploadJobKey)
       setJobId(null)
       setJob(null)
+      playUploadToastSound('error')
       setToast({
         kind: 'error',
         message: (event as CustomEvent<string>).detail,
@@ -194,12 +237,14 @@ function UploadActivity() {
           window.dispatchEvent(new CustomEvent(uploadCompletedEvent))
 
           if (nextJob.errors.length === 0) {
+            playUploadToastSound('success')
             setToast({
               kind: 'success',
               message: `${nextJob.succeeded} ${nextJob.succeeded === 1 ? 'reference' : 'references'} uploaded successfully.`,
             })
           } else {
             const firstError = nextJob.errors[0]
+            playUploadToastSound('error')
             setToast({
               kind: 'error',
               message: `${nextJob.succeeded} uploaded, ${nextJob.errors.length} failed. ${firstError.filename}: ${firstError.message}`,
@@ -214,6 +259,7 @@ function UploadActivity() {
         localStorage.removeItem(activeUploadJobKey)
         setJobId(null)
         setJob(null)
+        playUploadToastSound('error')
         setToast({
           kind: 'error',
           message:
@@ -805,6 +851,7 @@ function AdminPage() {
   const [suggestingPhotoId, setSuggestingPhotoId] = useState<string | null>(null)
   const [detailPhotoId, setDetailPhotoId] = useState<string | null>(null)
   const [selectedPhotoIds, setSelectedPhotoIds] = useState<string[]>([])
+  const [isSelectionMode, setIsSelectionMode] = useState(false)
   const [photosPendingDelete, setPhotosPendingDelete] = useState<Photo[] | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
   const [message, setMessage] = useState('')
@@ -932,6 +979,7 @@ function AdminPage() {
       return
     }
 
+    unlockUploadToastSounds()
     const filesToUpload = selectedFiles
     const jobId = crypto.randomUUID()
     setMessage('')
@@ -1145,6 +1193,11 @@ function AdminPage() {
     )
   }
 
+  function cancelPhotoSelection() {
+    setSelectedPhotoIds([])
+    setIsSelectionMode(false)
+  }
+
   function openPhotoDetail(photo: Photo) {
     setMessage('')
     setEditingKeywords((current) => ({
@@ -1176,12 +1229,6 @@ function AdminPage() {
       [photo.id]: undefined,
     }))
     setMessage('')
-  }
-
-  function toggleAllPhotos() {
-    setSelectedPhotoIds((current) =>
-      current.length === photos.length ? [] : photos.map((photo) => photo.id),
-    )
   }
 
   function requestPhotoDeletion(photoIds: string[]) {
@@ -1305,25 +1352,33 @@ function AdminPage() {
             </div>
             {photos.length > 0 ? (
               <div className="flex flex-wrap items-center gap-3">
-                <label className="flex cursor-pointer items-center gap-2 text-sm text-neutral-300">
-                  <input
-                    checked={selectedPhotoIds.length === photos.length}
-                    className="h-4 w-4 accent-[#FF6A38]"
-                    type="checkbox"
-                    onChange={toggleAllPhotos}
-                  />
-                  Select all
-                </label>
-                <Button
-                  className="border-red-400/40 text-red-200 hover:bg-red-500/10 hover:text-red-100"
-                  disabled={selectedPhotoIds.length === 0}
-                  type="button"
-                  variant="outline"
-                  onClick={() => requestPhotoDeletion(selectedPhotoIds)}
-                >
-                  <Trash2 className="mr-2 h-4 w-4" />
-                  Delete selected ({selectedPhotoIds.length})
-                </Button>
+                {isSelectionMode ? (
+                  <>
+                    <Button
+                      className="border-red-400/40 text-red-200 hover:bg-red-500/10 hover:text-red-100"
+                      disabled={selectedPhotoIds.length === 0}
+                      type="button"
+                      variant="outline"
+                      onClick={() => requestPhotoDeletion(selectedPhotoIds)}
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Delete selected ({selectedPhotoIds.length})
+                    </Button>
+                    <Button type="button" variant="outline" onClick={cancelPhotoSelection}>
+                      <X className="mr-2 h-4 w-4" />
+                      Cancel selection
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setIsSelectionMode(true)}
+                  >
+                    <CheckCircle2 className="mr-2 h-4 w-4" />
+                    Select
+                  </Button>
+                )}
               </div>
             ) : null}
           </div>
@@ -1350,20 +1405,30 @@ function AdminPage() {
                 }`}
                 key={photo.id}
               >
-                <label className="absolute left-3 top-3 z-10 flex cursor-pointer items-center gap-2 rounded-lg border border-white/10 bg-black/75 px-3 py-2 text-sm text-white shadow-lg backdrop-blur-xl">
-                  <input
-                    checked={selectedPhotoIds.includes(photo.id)}
-                    className="h-4 w-4 accent-[#FF6A38]"
-                    type="checkbox"
-                    onChange={() => togglePhotoSelection(photo.id)}
-                  />
-                  Select
-                </label>
+                {isSelectionMode ? (
+                  <label className="absolute left-3 top-3 z-10 flex cursor-pointer items-center gap-2 rounded-lg border border-white/10 bg-black/75 px-3 py-2 text-sm text-white shadow-lg backdrop-blur-xl">
+                    <input
+                      checked={selectedPhotoIds.includes(photo.id)}
+                      className="h-4 w-4 accent-[#FF6A38]"
+                      type="checkbox"
+                      onChange={() => togglePhotoSelection(photo.id)}
+                    />
+                    Select
+                  </label>
+                ) : null}
                 <button
-                  aria-label={`View details for ${photo.name ?? 'uploaded photo'}`}
+                  aria-label={
+                    isSelectionMode
+                      ? `${selectedPhotoIds.includes(photo.id) ? 'Deselect' : 'Select'} ${photo.name ?? 'uploaded photo'}`
+                      : `View details for ${photo.name ?? 'uploaded photo'}`
+                  }
                   className="group block w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#FF6A38]"
                   type="button"
-                  onClick={() => openPhotoDetail(photo)}
+                  onClick={() =>
+                    isSelectionMode
+                      ? togglePhotoSelection(photo.id)
+                      : openPhotoDetail(photo)
+                  }
                 >
                   <img
                     alt={photo.name ?? 'Uploaded visual reference'}
