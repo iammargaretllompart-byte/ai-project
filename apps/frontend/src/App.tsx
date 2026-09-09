@@ -536,8 +536,7 @@ function SearchPage() {
 
 function AdminPage() {
   const [photos, setPhotos] = useState<Photo[]>([])
-  const [selectedFile, setSelectedFile] = useState<File | null>(null)
-  const [uploadKeywords, setUploadKeywords] = useState('')
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [editingKeywords, setEditingKeywords] = useState<Record<string, string>>(
     {},
   )
@@ -630,8 +629,8 @@ function AdminPage() {
   async function uploadPhoto(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
-    if (!selectedFile) {
-      setMessage('Choose a photo before uploading.')
+    if (selectedFiles.length === 0) {
+      setMessage('Choose at least one photo before uploading.')
       return
     }
 
@@ -639,8 +638,10 @@ function AdminPage() {
     setMessage('')
 
     const formData = new FormData()
-    formData.append('photo', selectedFile)
-    formData.append('keywords', uploadKeywords)
+
+    for (const file of selectedFiles) {
+      formData.append('photos', file)
+    }
 
     try {
       const response = await fetch(`${apiBaseUrl}/photos`, {
@@ -649,16 +650,18 @@ function AdminPage() {
       })
 
       if (!response.ok) {
-        throw new Error('Could not upload photo')
+        throw new Error('Could not upload photos')
       }
 
-      setSelectedFile(null)
-      setUploadKeywords('')
-      setMessage('Photo uploaded.')
+      const uploadedCount = selectedFiles.length
+      setSelectedFiles([])
       event.currentTarget.reset()
       await loadPhotos()
+      setMessage(
+        `${uploadedCount} ${uploadedCount === 1 ? 'photo' : 'photos'} uploaded.`,
+      )
     } catch {
-      setMessage('Could not upload photo. Please try again.')
+      setMessage('Could not upload the selected photos. Please try again.')
     } finally {
       setIsUploading(false)
     }
@@ -900,31 +903,30 @@ function AdminPage() {
               <ImagePlus className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="font-semibold">Upload a photo</h2>
+              <h2 className="font-semibold">Upload photos</h2>
               <p className="text-sm text-neutral-400">
-                Keywords are optional. The app will suggest some automatically.
+                Choose one or more images. AI will name and keyword each one automatically.
               </p>
             </div>
           </div>
 
-          <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_1fr_auto]">
+          <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_auto]">
             <input
               accept="image/*"
               className="rounded-lg border border-white/15 bg-black/30 px-3 py-2 text-sm text-neutral-200 file:mr-4 file:rounded-md file:border-0 file:bg-[#FF6A38] file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-black"
+              multiple
               type="file"
               onChange={(event) =>
-                setSelectedFile(event.target.files?.[0] ?? null)
+                setSelectedFiles(Array.from(event.target.files ?? []))
               }
             />
-            <input
-              className="rounded-lg border border-white/15 bg-black/30 px-3 py-2 text-sm text-white outline-none ring-[#FF6A38]/40 placeholder:text-neutral-500 focus:ring-2"
-              placeholder="Optional: kitchen, marble, warm light"
-              value={uploadKeywords}
-              onChange={(event) => setUploadKeywords(event.target.value)}
-            />
-            <Button disabled={isUploading} type="submit">
+            <Button disabled={isUploading || selectedFiles.length === 0} type="submit">
               <Upload className="mr-2 h-4 w-4" />
-              {isUploading ? 'Uploading...' : 'Upload'}
+              {isUploading
+                ? `Uploading ${selectedFiles.length}...`
+                : selectedFiles.length > 1
+                  ? `Upload ${selectedFiles.length} photos`
+                  : 'Upload photo'}
             </Button>
           </div>
         </form>

@@ -149,45 +149,51 @@ app.post('/search', async (request, response) => {
   }
 })
 
-app.post('/photos', upload.single('photo'), async (request, response, next) => {
+app.post('/photos', upload.array('photos', 20), async (request, response, next) => {
+  const files = Array.isArray(request.files) ? request.files : []
+
   try {
-    if (!request.file) {
-      response.status(400).json({ error: 'Photo file is required' })
+    if (files.length === 0) {
+      response.status(400).json({ error: 'At least one photo file is required' })
       return
     }
 
     const photos = await readPhotos()
-    const manualKeywords = parseKeywords(request.body.keywords)
-    const suggestedKeywords = await suggestKeywords({
-      originalName: request.file.originalname,
-      existingKeywords: manualKeywords,
-      imagePath: request.file.path,
-      mimeType: request.file.mimetype,
-    })
-    const keywords = mergeKeywords(manualKeywords, suggestedKeywords)
-    const name = await generatePhotoName({
-      imagePath: request.file.path,
-      mimeType: request.file.mimetype,
-      keywords,
-    })
-    const photo: Photo = {
-      id: crypto.randomUUID(),
-      name,
-      originalName: request.file.originalname,
-      filename: request.file.filename,
-      url: `/uploads/${request.file.filename}`,
-      keywords,
-      createdAt: new Date().toISOString(),
+    const uploadedPhotos: Photo[] = []
+
+    for (const file of files) {
+      const keywords = await suggestKeywords(
+        {
+          originalName: file.originalname,
+          existingKeywords: [],
+          imagePath: file.path,
+          mimeType: file.mimetype,
+        },
+        true,
+      )
+      const name = await generatePhotoName({
+        imagePath: file.path,
+        mimeType: file.mimetype,
+        keywords,
+      })
+
+      uploadedPhotos.push({
+        id: crypto.randomUUID(),
+        name,
+        originalName: file.originalname,
+        filename: file.filename,
+        url: `/uploads/${file.filename}`,
+        keywords,
+        createdAt: new Date().toISOString(),
+      })
     }
 
-    photos.unshift(photo)
+    photos.unshift(...uploadedPhotos)
     await writePhotos(photos)
 
-    response.status(201).json(photo)
+    response.status(201).json({ photos: uploadedPhotos })
   } catch (error) {
-    if (request.file) {
-      await fs.rm(request.file.path, { force: true })
-    }
+    await Promise.all(files.map((file) => fs.rm(file.path, { force: true })))
     next(error)
   }
 })
@@ -545,8 +551,12 @@ function mergeKeywords(...keywordGroups: string[][]) {
   )
 }
 
-async function suggestKeywords(input: KeywordSuggestionInput) {
+async function suggestKeywords(input: KeywordSuggestionInput, requireAi = false) {
   if (!aiApiKey) {
+    if (requireAi) {
+      throw new Error('AI_API_KEY is required to generate upload keywords')
+    }
+
     return suggestKeywordsFallback(input)
   }
 
@@ -577,11 +587,15 @@ async function suggestKeywords(input: KeywordSuggestionInput) {
     const keywords = parseAiKeywords(result.text)
 
     if (keywords.length === 0) {
-      console.warn('AI image keyword request returned no parseable keywords')
+      throw new Error('AI returned no photo keywords')
     }
 
-    return keywords.length > 0 ? keywords : suggestKeywordsFallback(input)
+    return keywords
   } catch (error) {
+    if (requireAi) {
+      throw error
+    }
+
     console.warn('AI image keyword request failed before completion', error)
     return suggestKeywordsFallback(input)
   }
