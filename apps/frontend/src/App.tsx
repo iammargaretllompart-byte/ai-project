@@ -504,6 +504,13 @@ function PendingPhotoPreview({
   )
 }
 
+const searchPromptTemplates = [
+  'Modern web design portfolio with colourful minimal style',
+  'Warm editorial brand identity with natural textures',
+  'Bold product campaign with dramatic lighting and vivid colours',
+  'Calm minimalist interior with neutral tones and organic shapes',
+]
+
 function SearchPage() {
   const [prompt, setPrompt] = useState('')
   const [results, setResults] = useState<PhotoSearchResult[]>([])
@@ -635,31 +642,59 @@ function SearchPage() {
       <div className="mx-auto flex min-h-[calc(100vh-7.75rem)] max-w-6xl items-center">
         <section className="glass-surface w-full rounded-3xl bg-white/[0.04] p-6 sm:p-10">
           <p className="text-sm font-medium uppercase tracking-[0.3em] text-[#FF6A38]">
-            Visual Search
+            References Search
           </p>
           <h1 className="mt-4 max-w-3xl text-4xl font-bold tracking-tight sm:text-6xl">
-            Find image references from your admin library.
+            Let's search the best references for your project
           </h1>
           <p className="mt-5 max-w-2xl text-neutral-300">
-            Describe the style, content, or mood you want. The agent searches
-            your library, reviews the candidates, and selects the best references.
+            Our agent searches your curated library, reviews the candidates, and
+            selects the references that match best.
           </p>
 
           <form
-            className="mt-8 grid gap-3 lg:grid-cols-[1fr_auto]"
+            className="mt-8 flex flex-col gap-3"
             onSubmit={(event) => void searchPhotos(event)}
           >
             <textarea
               className="min-h-28 rounded-2xl border border-white/15 bg-black/30 px-4 py-3 text-base text-white outline-none ring-[#FF6A38]/40 placeholder:text-neutral-500 focus:ring-2"
-              placeholder="Example: modern web design portfolio with colorful minimal style"
+              placeholder="Describe your project and the style, content, or mood you have in mind"
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
             />
-            <Button className="h-auto lg:w-40" disabled={isSearching} type="submit">
+            <Button
+              className="w-40 self-end"
+              disabled={isSearching || !prompt.trim()}
+              type="submit"
+            >
               <Search className="mr-2 h-4 w-4" />
               {isSearching ? 'Searching...' : 'Search'}
             </Button>
           </form>
+          <div aria-label="Search prompt examples" className="mt-6">
+            <p className="mb-3 text-sm text-neutral-400">
+              Not sure where to start? Try one of these:
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {searchPromptTemplates.map((template) => (
+                <button
+                  aria-pressed={prompt === template}
+                  className={`rounded-full border px-3.5 py-2 text-left text-sm transition-colors ${
+                    prompt === template
+                      ? 'border-[#FF6A38]/60 bg-[#FF6A38]/15 text-[#ffb39a]'
+                      : 'border-white/15 bg-white/[0.04] text-neutral-300 hover:border-[#FF6A38]/40 hover:text-white'
+                  }`}
+                  key={template}
+                  type="button"
+                  onClick={() =>
+                    setPrompt((current) => (current === template ? '' : template))
+                  }
+                >
+                  {template}
+                </button>
+              ))}
+            </div>
+          </div>
           {message && !hasSearched ? (
             <p className="mt-4 text-sm text-rose-300">{message}</p>
           ) : null}
@@ -675,19 +710,21 @@ function SearchPage() {
         >
           <header className="canvas-overlay sticky top-0 z-10 border-b border-white/10 px-5 py-4 backdrop-blur-xl sm:px-8">
             <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
-              <Button variant="outline" onClick={closeSearch}>
-                <ArrowLeft className="mr-2 h-4 w-4" />
-                Back to search
-              </Button>
-              <div className="flex min-w-0 items-center gap-3">
-                <div className="min-w-0 text-right">
-                  <p className="text-xs font-medium uppercase tracking-[0.25em] text-[#FF6A38]">
-                    Visual Search
-                  </p>
-                  <p className="mt-1 truncate text-sm text-neutral-400">{prompt}</p>
-                </div>
-                <AdminAccess />
+              <div className="min-w-0 text-left">
+                <p className="text-xs font-medium uppercase tracking-[0.25em] text-white">
+                  Your Search
+                </p>
+                <p className="mt-1 truncate text-sm text-neutral-400">{prompt}</p>
               </div>
+              <Button
+                aria-label="Back to search"
+                className="h-10 w-10 shrink-0 p-0"
+                title="Back to search"
+                variant="outline"
+                onClick={closeSearch}
+              >
+                <X className="h-4 w-4" />
+              </Button>
             </div>
           </header>
 
@@ -766,12 +803,14 @@ function SearchPage() {
                         key={photo.id}
                       >
                         <img
-                          alt={photo.originalName}
+                          alt={photo.name ?? 'Selected visual reference'}
                           className="aspect-[4/3] w-full object-cover"
                           src={`${apiBaseUrl}${photo.url}`}
                         />
                         <div className="space-y-4 p-5">
-                          <h3 className="line-clamp-2 font-medium">{photo.originalName}</h3>
+                          <h3 className="line-clamp-2 font-medium">
+                            {photo.name ?? 'Untitled reference'}
+                          </h3>
                           {photo.selectionReason ? (
                             <div className="rounded-lg border border-[#FF6A38]/20 bg-[#FF6A38]/5 p-3">
                               <p className="text-xs font-medium uppercase tracking-wider text-[#FF6A38]">
@@ -1298,8 +1337,13 @@ function AdminPage() {
       <div className="mx-auto max-w-6xl">
         <nav
           aria-label="Breadcrumb"
-          className="mb-8 flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-5"
+          className="mb-8 flex flex-wrap items-center gap-4 border-b border-white/10 pb-5"
         >
+          <Button asChild className="h-10 w-10 p-0" variant="outline">
+            <a aria-label="Exit admin" href="/search" title="Exit admin">
+              <ArrowLeft className="h-4 w-4" />
+            </a>
+          </Button>
           <div className="flex items-center gap-2 text-sm text-neutral-400">
             <a className="transition-colors hover:text-white" href="/search">
               Visual Search
@@ -1311,21 +1355,15 @@ function AdminPage() {
               Admin
             </span>
           </div>
-          <Button asChild variant="outline">
-            <a href="/search">
-              <X className="mr-2 h-4 w-4" />
-              Exit admin
-            </a>
-          </Button>
         </nav>
 
         <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <p className="text-sm font-medium uppercase tracking-[0.3em] text-[#FF6A38]">
-              Admin
+              Library Administrator
             </p>
             <h1 className="mt-3 text-4xl font-bold tracking-tight">
-              Photo Library
+              Your Curated References
             </h1>
             <p className="mt-3 max-w-2xl text-neutral-300">
               Upload image references, add keywords manually, and edit them as
@@ -1347,8 +1385,9 @@ function AdminPage() {
         <section className="mt-8">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
-              <h2 className="text-xl font-semibold">Uploaded photos</h2>
-              <span className="text-sm text-neutral-400">{photos.length} total</span>
+              <span className="text-sm text-neutral-400">
+                {photos.length} total references
+              </span>
             </div>
             {photos.length > 0 ? (
               <div className="flex flex-wrap items-center gap-3">
