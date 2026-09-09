@@ -4,6 +4,7 @@ import {
   ArrowRight,
   ImagePlus,
   LoaderCircle,
+  Pencil,
   RefreshCcw,
   Save,
   Search,
@@ -20,6 +21,7 @@ const apiBaseUrl = 'http://localhost:4000'
 
 type Photo = {
   id: string
+  name?: string
   originalName: string
   filename: string
   url: string
@@ -441,6 +443,8 @@ function AdminPage() {
   )
   const [isLoading, setIsLoading] = useState(true)
   const [isUploading, setIsUploading] = useState(false)
+  const [editingPhotoId, setEditingPhotoId] = useState<string | null>(null)
+  const [savingPhotoId, setSavingPhotoId] = useState<string | null>(null)
   const [suggestingPhotoId, setSuggestingPhotoId] = useState<string | null>(null)
   const [selectedPhotoIds, setSelectedPhotoIds] = useState<string[]>([])
   const [photosPendingDelete, setPhotosPendingDelete] = useState<Photo[] | null>(null)
@@ -479,6 +483,7 @@ function AdminPage() {
 
       const nextPhotos = (await response.json()) as Photo[]
       setPhotos(nextPhotos)
+      setEditingPhotoId(null)
       setSelectedPhotoIds([])
       setEditingKeywords(
         Object.fromEntries(
@@ -530,6 +535,7 @@ function AdminPage() {
   }
 
   async function saveKeywords(photoId: string) {
+    setSavingPhotoId(photoId)
     setMessage('')
 
     try {
@@ -545,10 +551,20 @@ function AdminPage() {
         throw new Error('Could not save keywords')
       }
 
+      const updatedPhoto = (await response.json()) as Photo
+      setPhotos((current) =>
+        current.map((photo) => (photo.id === photoId ? updatedPhoto : photo)),
+      )
+      setEditingKeywords((current) => ({
+        ...current,
+        [photoId]: updatedPhoto.keywords.join(', '),
+      }))
+      setEditingPhotoId(null)
       setMessage('Keywords saved.')
-      await loadPhotos()
     } catch {
       setMessage('Could not save keywords. Please try again.')
+    } finally {
+      setSavingPhotoId(null)
     }
   }
 
@@ -584,6 +600,22 @@ function AdminPage() {
         ? current.filter((id) => id !== photoId)
         : [...current, photoId],
     )
+  }
+
+  function startEditingKeywords(photo: Photo) {
+    setEditingKeywords((current) => ({
+      ...current,
+      [photo.id]: photo.keywords.join(', '),
+    }))
+    setEditingPhotoId(photo.id)
+  }
+
+  function cancelEditingKeywords(photo: Photo) {
+    setEditingKeywords((current) => ({
+      ...current,
+      [photo.id]: photo.keywords.join(', '),
+    }))
+    setEditingPhotoId(null)
   }
 
   function toggleAllPhotos() {
@@ -782,7 +814,7 @@ function AdminPage() {
               >
                 <div className="relative">
                   <img
-                    alt={photo.originalName}
+                    alt={photo.name ?? 'Uploaded visual reference'}
                     className="aspect-[4/3] w-full object-cover"
                     src={`${apiBaseUrl}${photo.url}`}
                   />
@@ -797,14 +829,12 @@ function AdminPage() {
                   </label>
                 </div>
                 <div className="space-y-4 p-4">
-                  <div>
-                    <h3 className="line-clamp-2 font-medium">
-                      {photo.originalName}
-                    </h3>
-                    <p className="mt-1 text-xs text-neutral-500">
-                      {new Date(photo.createdAt).toLocaleString()}
-                    </p>
-                  </div>
+                  {photo.name ? (
+                    <h3 className="text-lg font-medium leading-6">{photo.name}</h3>
+                  ) : null}
+                  <p className="text-xs text-neutral-500">
+                    Uploaded {new Date(photo.createdAt).toLocaleString()}
+                  </p>
 
                   <div className="flex flex-wrap gap-2">
                     {photo.keywords.map((keyword) => (
@@ -818,43 +848,68 @@ function AdminPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <label
-                      className="text-sm font-medium text-neutral-300"
-                      htmlFor={`keywords-${photo.id}`}
-                    >
-                      Edit keywords
-                    </label>
-                    <textarea
-                      className="min-h-20 w-full rounded-lg border border-white/15 bg-black/30 px-3 py-2 text-sm text-white outline-none ring-[#FF6A38]/40 placeholder:text-neutral-500 focus:ring-2"
-                      id={`keywords-${photo.id}`}
-                      value={editingKeywords[photo.id] ?? ''}
-                      onChange={(event) =>
-                        setEditingKeywords((current) => ({
-                          ...current,
-                          [photo.id]: event.target.value,
-                        }))
-                      }
-                    />
-                    <Button
-                      className="w-full"
-                      type="button"
-                      variant="outline"
-                      disabled={suggestingPhotoId === photo.id}
-                      onClick={() => void suggestKeywords(photo.id)}
-                    >
-                      <Sparkles className="mr-2 h-4 w-4" />
-                      {suggestingPhotoId === photo.id
-                        ? 'Suggesting...'
-                        : 'Suggest keywords'}
-                    </Button>
-                    <Button
-                      className="w-full"
-                      type="button"
-                      onClick={() => void saveKeywords(photo.id)}
-                    >
-                      <Save className="mr-2 h-4 w-4" />
-                      Save keywords
-                    </Button>
+                    {editingPhotoId === photo.id ? (
+                      <>
+                        <label
+                          className="text-sm font-medium text-neutral-300"
+                          htmlFor={`keywords-${photo.id}`}
+                        >
+                          Edit keywords
+                        </label>
+                        <textarea
+                          autoFocus
+                          className="min-h-20 w-full rounded-lg border border-white/15 bg-black/30 px-3 py-2 text-sm text-white outline-none ring-[#FF6A38]/40 placeholder:text-neutral-500 focus:ring-2"
+                          id={`keywords-${photo.id}`}
+                          value={editingKeywords[photo.id] ?? ''}
+                          onChange={(event) =>
+                            setEditingKeywords((current) => ({
+                              ...current,
+                              [photo.id]: event.target.value,
+                            }))
+                          }
+                        />
+                        <Button
+                          className="w-full"
+                          disabled={suggestingPhotoId === photo.id || savingPhotoId === photo.id}
+                          type="button"
+                          variant="outline"
+                          onClick={() => void suggestKeywords(photo.id)}
+                        >
+                          <Sparkles className="mr-2 h-4 w-4" />
+                          {suggestingPhotoId === photo.id
+                            ? 'Suggesting...'
+                            : 'Suggest keywords'}
+                        </Button>
+                        <Button
+                          className="w-full"
+                          disabled={savingPhotoId === photo.id || suggestingPhotoId === photo.id}
+                          type="button"
+                          onClick={() => void saveKeywords(photo.id)}
+                        >
+                          <Save className="mr-2 h-4 w-4" />
+                          {savingPhotoId === photo.id ? 'Saving...' : 'Save keywords'}
+                        </Button>
+                        <Button
+                          className="w-full"
+                          disabled={savingPhotoId === photo.id || suggestingPhotoId === photo.id}
+                          type="button"
+                          variant="outline"
+                          onClick={() => cancelEditingKeywords(photo)}
+                        >
+                          Cancel
+                        </Button>
+                      </>
+                    ) : (
+                      <Button
+                        className="w-full"
+                        type="button"
+                        variant="outline"
+                        onClick={() => startEditingKeywords(photo)}
+                      >
+                        <Pencil className="mr-2 h-4 w-4" />
+                        Edit keywords
+                      </Button>
+                    )}
                     <Button
                       className="w-full border-red-400/40 text-red-200 hover:bg-red-500/10 hover:text-red-100"
                       type="button"
@@ -888,7 +943,9 @@ function AdminPage() {
             </h2>
             <p className="mt-3 leading-6 text-neutral-300">
               This permanently removes {photosPendingDelete.length === 1
-                ? `“${photosPendingDelete[0].originalName}”`
+                ? photosPendingDelete[0].name
+                  ? `“${photosPendingDelete[0].name}”`
+                  : 'this photo'
                 : 'the selected photos'} from the library and cannot be undone.
             </p>
             <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">

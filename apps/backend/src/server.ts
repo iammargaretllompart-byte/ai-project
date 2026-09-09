@@ -10,6 +10,7 @@ import { z } from 'zod'
 
 type Photo = {
   id: string
+  name?: string
   originalName: string
   filename: string
   url: string
@@ -163,12 +164,19 @@ app.post('/photos', upload.single('photo'), async (request, response, next) => {
       imagePath: request.file.path,
       mimeType: request.file.mimetype,
     })
+    const keywords = mergeKeywords(manualKeywords, suggestedKeywords)
+    const name = await generatePhotoName({
+      imagePath: request.file.path,
+      mimeType: request.file.mimetype,
+      keywords,
+    })
     const photo: Photo = {
       id: crypto.randomUUID(),
+      name,
       originalName: request.file.originalname,
       filename: request.file.filename,
       url: `/uploads/${request.file.filename}`,
-      keywords: mergeKeywords(manualKeywords, suggestedKeywords),
+      keywords,
       createdAt: new Date().toISOString(),
     }
 
@@ -177,6 +185,9 @@ app.post('/photos', upload.single('photo'), async (request, response, next) => {
 
     response.status(201).json(photo)
   } catch (error) {
+    if (request.file) {
+      await fs.rm(request.file.path, { force: true })
+    }
     next(error)
   }
 })
@@ -471,6 +482,50 @@ function createAiModel(sessionId: string) {
   })
 
   return provider(aiModel)
+}
+
+async function generatePhotoName({
+  imagePath,
+  mimeType,
+  keywords,
+}: {
+  imagePath: string
+  mimeType: string
+  keywords: string[]
+}) {
+  const image = await fs.readFile(imagePath)
+  const imageUrl = `data:${mimeType};base64,${image.toString('base64')}`
+  const result = await generateText({
+    model: createAiModel(crypto.randomUUID()),
+    system:
+      'Name visual references using short, concrete, descriptive titles. Return only a title of 2 to 5 words with no quotes, punctuation, or explanation.',
+    messages: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: `Create a name for this image using its visual content and these keywords: ${keywords.join(', ') || 'none'}`,
+          },
+          {
+            type: 'image',
+            image: new URL(imageUrl),
+          },
+        ],
+      },
+    ],
+    temperature: 0.2,
+  })
+  const name = result.text
+    .trim()
+    .replace(/^['"]|['"]$/g, '')
+    .replace(/[.!?]+$/g, '')
+
+  if (!name) {
+    throw new Error('AI returned an empty photo name')
+  }
+
+  return name.split(/\s+/).slice(0, 5).join(' ')
 }
 
 function parseKeywords(value: unknown) {
