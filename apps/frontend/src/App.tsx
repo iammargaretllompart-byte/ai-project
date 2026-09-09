@@ -11,7 +11,6 @@ import {
   Sparkles,
   Trash2,
   Upload,
-  UserRound,
   X,
 } from 'lucide-react'
 
@@ -352,12 +351,10 @@ function AdminAccess() {
   return (
     <Button
       asChild
-      className="h-11 w-11 rounded-full border-white/15 bg-white/[0.05] p-0 shadow-lg shadow-black/20"
+      className="border-white/15 bg-white/[0.05] shadow-lg shadow-black/20"
       variant="outline"
     >
-      <a aria-label="Open admin" href="/admin" title="Open admin">
-        <UserRound className="h-5 w-5" />
-      </a>
+      <a href="/admin">Your Library</a>
     </Button>
   )
 }
@@ -507,8 +504,8 @@ function PendingPhotoPreview({
 const searchPromptTemplates = [
   'Modern web design portfolio with colourful minimal style',
   'Warm editorial brand identity with natural textures',
-  'Bold product campaign with dramatic lighting and vivid colours',
-  'Calm minimalist interior with neutral tones and organic shapes',
+  'Product page with vivid colours',
+  'Photography driven sports landing page',
 ]
 
 function SearchPage() {
@@ -625,6 +622,7 @@ function SearchPage() {
   function closeSearch() {
     requestRef.current?.abort()
     requestRef.current = null
+    setPrompt('')
     setHasSearched(false)
     setIsSearching(false)
     setLoadingStep(0)
@@ -644,7 +642,7 @@ function SearchPage() {
           <p className="text-sm font-medium uppercase tracking-[0.3em] text-[#FF6A38]">
             References Search
           </p>
-          <h1 className="mt-4 max-w-3xl text-4xl font-bold tracking-tight sm:text-6xl">
+          <h1 className="mt-4 text-3xl font-bold tracking-tight sm:text-4xl xl:text-[2.5rem]">
             Let's search the best references for your project
           </h1>
           <p className="mt-5 max-w-2xl text-neutral-300">
@@ -662,39 +660,39 @@ function SearchPage() {
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
             />
+            <div aria-label="Search prompt examples">
+              <p className="mb-3 text-sm text-neutral-400">
+                Not sure where to start? Try one of these:
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {searchPromptTemplates.map((template) => (
+                  <button
+                    aria-pressed={prompt === template}
+                    className={`rounded-full border px-3.5 py-2 text-left text-sm transition-colors ${
+                      prompt === template
+                        ? 'border-[#FF6A38]/60 bg-[#FF6A38]/15 text-[#ffb39a]'
+                        : 'border-white/15 bg-white/[0.04] text-neutral-300 hover:border-[#FF6A38]/40 hover:text-white'
+                    }`}
+                    key={template}
+                    type="button"
+                    onClick={() =>
+                      setPrompt((current) => (current === template ? '' : template))
+                    }
+                  >
+                    {template}
+                  </button>
+                ))}
+              </div>
+            </div>
             <Button
               className="w-40 self-end"
               disabled={isSearching || !prompt.trim()}
               type="submit"
             >
               <Search className="mr-2 h-4 w-4" />
-              {isSearching ? 'Searching...' : 'Search'}
+              {isSearching ? 'Searching...' : 'Search references'}
             </Button>
           </form>
-          <div aria-label="Search prompt examples" className="mt-6">
-            <p className="mb-3 text-sm text-neutral-400">
-              Not sure where to start? Try one of these:
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {searchPromptTemplates.map((template) => (
-                <button
-                  aria-pressed={prompt === template}
-                  className={`rounded-full border px-3.5 py-2 text-left text-sm transition-colors ${
-                    prompt === template
-                      ? 'border-[#FF6A38]/60 bg-[#FF6A38]/15 text-[#ffb39a]'
-                      : 'border-white/15 bg-white/[0.04] text-neutral-300 hover:border-[#FF6A38]/40 hover:text-white'
-                  }`}
-                  key={template}
-                  type="button"
-                  onClick={() =>
-                    setPrompt((current) => (current === template ? '' : template))
-                  }
-                >
-                  {template}
-                </button>
-              ))}
-            </div>
-          </div>
           {message && !hasSearched ? (
             <p className="mt-4 text-sm text-rose-300">{message}</p>
           ) : null}
@@ -1337,7 +1335,7 @@ function AdminPage() {
       <div className="mx-auto max-w-6xl">
         <nav
           aria-label="Breadcrumb"
-          className="mb-8 flex flex-wrap items-center gap-4 border-b border-white/10 pb-5"
+          className="mb-10 flex flex-wrap items-center gap-4 border-b border-white/10 pb-5"
         >
           <Button asChild className="h-10 w-10 p-0" variant="outline">
             <a aria-label="Exit admin" href="/search" title="Exit admin">
@@ -1352,17 +1350,14 @@ function AdminPage() {
               /
             </span>
             <span aria-current="page" className="text-[#FF6A38]">
-              Admin
+              Library Administrator
             </span>
           </div>
         </nav>
 
         <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <p className="text-sm font-medium uppercase tracking-[0.3em] text-[#FF6A38]">
-              Library Administrator
-            </p>
-            <h1 className="mt-3 text-4xl font-bold tracking-tight">
+            <h1 className="text-4xl font-bold tracking-tight">
               Your Curated References
             </h1>
             <p className="mt-3 max-w-2xl text-neutral-300">
@@ -1384,8 +1379,8 @@ function AdminPage() {
 
         <section className="mt-8">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-3">
-              <span className="text-sm text-neutral-400">
+            <div className="flex min-h-10 items-center gap-3">
+              <span className="relative top-1 text-sm text-neutral-400">
                 {photos.length} total references
               </span>
             </div>
