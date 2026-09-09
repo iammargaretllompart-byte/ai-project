@@ -1,10 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   ArrowLeft,
   ArrowRight,
   ImagePlus,
   LoaderCircle,
-  Pencil,
   RefreshCcw,
   Save,
   Search,
@@ -103,6 +102,107 @@ function AdminAccess() {
         <UserRound className="h-5 w-5" />
       </a>
     </Button>
+  )
+}
+
+const keywordChipClassName =
+  'max-w-full truncate rounded-full bg-[#FF6A38]/10 px-2.5 py-1 text-xs font-medium text-[#ffb39a]'
+
+function KeywordPreview({ keywords }: { keywords: string[] }) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const measurementRef = useRef<HTMLDivElement>(null)
+  const [visibleCount, setVisibleCount] = useState(keywords.length)
+
+  useLayoutEffect(() => {
+    const container = containerRef.current
+    const measurement = measurementRef.current
+
+    if (!container || !measurement) {
+      return
+    }
+
+    const previewContainer = container
+    const measurementContainer = measurement
+
+    function calculateVisibleCount() {
+      const availableWidth = previewContainer.clientWidth
+      const elements = Array.from(
+        measurementContainer.querySelectorAll<HTMLElement>('[data-keyword-chip]'),
+      )
+      const keywordWidths = elements
+        .slice(0, keywords.length)
+        .map((element) => element.getBoundingClientRect().width)
+      const overflowWidth = elements.at(-1)?.getBoundingClientRect().width ?? 0
+      const gap = 8
+
+      function fits(widths: number[]) {
+        let rows = 1
+        let rowWidth = 0
+
+        for (const width of widths) {
+          if (rowWidth > 0 && rowWidth + gap + width > availableWidth) {
+            rows += 1
+            rowWidth = width
+          } else {
+            rowWidth += (rowWidth > 0 ? gap : 0) + width
+          }
+        }
+
+        return rows <= 3
+      }
+
+      if (fits(keywordWidths)) {
+        setVisibleCount(keywords.length)
+        return
+      }
+
+      for (let count = keywords.length - 1; count >= 0; count -= 1) {
+        if (fits([...keywordWidths.slice(0, count), overflowWidth])) {
+          setVisibleCount(count)
+          return
+        }
+      }
+
+      setVisibleCount(0)
+    }
+
+    calculateVisibleCount()
+    const observer = new ResizeObserver(calculateVisibleCount)
+    observer.observe(previewContainer)
+    return () => observer.disconnect()
+  }, [keywords])
+
+  const hiddenCount = keywords.length - visibleCount
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <div
+        aria-hidden="true"
+        className="invisible absolute inset-x-0 top-0 flex flex-wrap gap-2"
+        ref={measurementRef}
+      >
+        {keywords.map((keyword, index) => (
+          <span className={keywordChipClassName} data-keyword-chip key={`${keyword}-${index}`}>
+            {keyword}
+          </span>
+        ))}
+        <span className={keywordChipClassName} data-keyword-chip>
+          {keywords.length} more
+        </span>
+      </div>
+      <div className="flex min-h-[5.5rem] content-start flex-wrap gap-2">
+        {keywords.slice(0, visibleCount).map((keyword, index) => (
+          <span className={keywordChipClassName} key={`${keyword}-${index}`}>
+            {keyword}
+          </span>
+        ))}
+        {hiddenCount > 0 ? (
+          <span className="max-w-full truncate rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1 text-xs font-medium text-neutral-300">
+            {hiddenCount} more
+          </span>
+        ) : null}
+      </div>
+    </div>
   )
 }
 
@@ -441,11 +541,14 @@ function AdminPage() {
   const [editingKeywords, setEditingKeywords] = useState<Record<string, string>>(
     {},
   )
+  const [suggestedKeywordsByPhoto, setSuggestedKeywordsByPhoto] = useState<
+    Record<string, string[] | undefined>
+  >({})
   const [isLoading, setIsLoading] = useState(true)
   const [isUploading, setIsUploading] = useState(false)
-  const [editingPhotoId, setEditingPhotoId] = useState<string | null>(null)
   const [savingPhotoId, setSavingPhotoId] = useState<string | null>(null)
   const [suggestingPhotoId, setSuggestingPhotoId] = useState<string | null>(null)
+  const [detailPhotoId, setDetailPhotoId] = useState<string | null>(null)
   const [selectedPhotoIds, setSelectedPhotoIds] = useState<string[]>([])
   const [photosPendingDelete, setPhotosPendingDelete] = useState<Photo[] | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
@@ -470,6 +573,32 @@ function AdminPage() {
     return () => window.removeEventListener('keydown', closeOnEscape)
   }, [photosPendingDelete, isDeleting])
 
+  useEffect(() => {
+    if (!detailPhotoId) {
+      return
+    }
+
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (
+        event.key === 'Escape' &&
+        !photosPendingDelete &&
+        !savingPhotoId &&
+        !suggestingPhotoId
+      ) {
+        setDetailPhotoId(null)
+      }
+    }
+
+    window.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [detailPhotoId, photosPendingDelete, savingPhotoId, suggestingPhotoId])
+
   async function loadPhotos() {
     setIsLoading(true)
     setMessage('')
@@ -483,8 +612,9 @@ function AdminPage() {
 
       const nextPhotos = (await response.json()) as Photo[]
       setPhotos(nextPhotos)
-      setEditingPhotoId(null)
+      setDetailPhotoId(null)
       setSelectedPhotoIds([])
+      setSuggestedKeywordsByPhoto({})
       setEditingKeywords(
         Object.fromEntries(
           nextPhotos.map((photo) => [photo.id, photo.keywords.join(', ')]),
@@ -559,7 +689,10 @@ function AdminPage() {
         ...current,
         [photoId]: updatedPhoto.keywords.join(', '),
       }))
-      setEditingPhotoId(null)
+      setSuggestedKeywordsByPhoto((current) => ({
+        ...current,
+        [photoId]: undefined,
+      }))
       setMessage('Keywords saved.')
     } catch {
       setMessage('Could not save keywords. Please try again.')
@@ -581,12 +714,22 @@ function AdminPage() {
         throw new Error('Could not suggest keywords')
       }
 
-      const data = (await response.json()) as { keywords: string[] }
+      const data = (await response.json()) as {
+        keywords: string[]
+        suggestedKeywords: string[]
+      }
+      const savedKeywords = photos.find((photo) => photo.id === photoId)?.keywords ?? []
+      const addedKeywords = data.suggestedKeywords.filter(
+        (keyword) => !savedKeywords.includes(keyword),
+      )
       setEditingKeywords((current) => ({
         ...current,
         [photoId]: data.keywords.join(', '),
       }))
-      setMessage('Suggested keywords added to the edit box. Save them if they look right.')
+      setSuggestedKeywordsByPhoto((current) => ({
+        ...current,
+        [photoId]: addedKeywords,
+      }))
     } catch {
       setMessage('Could not suggest keywords. Please try again.')
     } finally {
@@ -602,20 +745,37 @@ function AdminPage() {
     )
   }
 
-  function startEditingKeywords(photo: Photo) {
+  function openPhotoDetail(photo: Photo) {
+    setMessage('')
     setEditingKeywords((current) => ({
       ...current,
       [photo.id]: photo.keywords.join(', '),
     }))
-    setEditingPhotoId(photo.id)
+    setSuggestedKeywordsByPhoto((current) => ({
+      ...current,
+      [photo.id]: undefined,
+    }))
+    setDetailPhotoId(photo.id)
   }
 
-  function cancelEditingKeywords(photo: Photo) {
+  function closePhotoDetail() {
+    if (savingPhotoId || suggestingPhotoId) {
+      return
+    }
+
+    setDetailPhotoId(null)
+  }
+
+  function cancelKeywordChanges(photo: Photo) {
     setEditingKeywords((current) => ({
       ...current,
       [photo.id]: photo.keywords.join(', '),
     }))
-    setEditingPhotoId(null)
+    setSuggestedKeywordsByPhoto((current) => ({
+      ...current,
+      [photo.id]: undefined,
+    }))
+    setMessage('')
   }
 
   function toggleAllPhotos() {
@@ -659,6 +819,14 @@ function AdminPage() {
           Object.entries(current).filter(([id]) => !deletedIds.has(id)),
         ),
       )
+      setSuggestedKeywordsByPhoto((current) =>
+        Object.fromEntries(
+          Object.entries(current).filter(([id]) => !deletedIds.has(id)),
+        ),
+      )
+      setDetailPhotoId((current) =>
+        current && deletedIds.has(current) ? null : current,
+      )
       setPhotosPendingDelete(null)
       setMessage(
         `${data.deletedIds.length} ${data.deletedIds.length === 1 ? 'photo' : 'photos'} deleted.`,
@@ -669,6 +837,14 @@ function AdminPage() {
       setIsDeleting(false)
     }
   }
+
+  const detailPhoto = photos.find((photo) => photo.id === detailPhotoId) ?? null
+  const hasKeywordChanges = detailPhoto
+    ? (editingKeywords[detailPhoto.id] ?? '') !== detailPhoto.keywords.join(', ')
+    : false
+  const detailSuggestedKeywords = detailPhoto
+    ? suggestedKeywordsByPhoto[detailPhoto.id]
+    : undefined
 
   return (
     <main className="app-canvas min-h-screen px-6 py-8 text-white">
@@ -805,127 +981,229 @@ function AdminPage() {
           <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
             {photos.map((photo) => (
               <article
-                className={`glass-surface overflow-hidden rounded-2xl ${
+                className={`glass-surface relative overflow-hidden rounded-2xl transition-transform hover:-translate-y-0.5 ${
                   selectedPhotoIds.includes(photo.id)
                     ? 'border-[#FF6A38] ring-1 ring-[#FF6A38]'
                     : 'border-white/10'
                 }`}
                 key={photo.id}
               >
-                <div className="relative">
+                <label className="absolute left-3 top-3 z-10 flex cursor-pointer items-center gap-2 rounded-lg border border-white/10 bg-black/75 px-3 py-2 text-sm text-white shadow-lg backdrop-blur-xl">
+                  <input
+                    checked={selectedPhotoIds.includes(photo.id)}
+                    className="h-4 w-4 accent-[#FF6A38]"
+                    type="checkbox"
+                    onChange={() => togglePhotoSelection(photo.id)}
+                  />
+                  Select
+                </label>
+                <button
+                  aria-label={`View details for ${photo.name ?? 'uploaded photo'}`}
+                  className="group block w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#FF6A38]"
+                  type="button"
+                  onClick={() => openPhotoDetail(photo)}
+                >
                   <img
                     alt={photo.name ?? 'Uploaded visual reference'}
-                    className="aspect-[4/3] w-full object-cover"
+                    className="aspect-[4/3] w-full object-cover transition-transform duration-500 group-hover:scale-[1.02]"
                     src={`${apiBaseUrl}${photo.url}`}
                   />
-                  <label className="absolute left-3 top-3 flex cursor-pointer items-center gap-2 rounded-lg border border-white/10 bg-black/75 px-3 py-2 text-sm text-white shadow-lg backdrop-blur-xl">
-                    <input
-                      checked={selectedPhotoIds.includes(photo.id)}
-                      className="h-4 w-4 accent-[#FF6A38]"
-                      type="checkbox"
-                      onChange={() => togglePhotoSelection(photo.id)}
-                    />
-                    Select
-                  </label>
-                </div>
-                <div className="space-y-4 p-4">
-                  {photo.name ? (
-                    <h3 className="text-lg font-medium leading-6">{photo.name}</h3>
-                  ) : null}
-                  <p className="text-xs text-neutral-500">
-                    Uploaded {new Date(photo.createdAt).toLocaleString()}
-                  </p>
-
-                  <div className="flex flex-wrap gap-2">
-                    {photo.keywords.map((keyword) => (
-                      <span
-                        className="rounded-full bg-[#FF6A38]/10 px-2.5 py-1 text-xs font-medium text-[#ffb39a]"
-                        key={keyword}
-                      >
-                        {keyword}
-                      </span>
-                    ))}
+                  <div className="space-y-4 p-4">
+                    {photo.name ? (
+                      <h3 className="text-lg font-medium leading-6">{photo.name}</h3>
+                    ) : null}
+                    <p className="text-xs text-neutral-500">
+                      Uploaded {new Date(photo.createdAt).toLocaleString()}
+                    </p>
+                    <KeywordPreview keywords={photo.keywords} />
                   </div>
-
-                  <div className="space-y-2">
-                    {editingPhotoId === photo.id ? (
-                      <>
-                        <label
-                          className="text-sm font-medium text-neutral-300"
-                          htmlFor={`keywords-${photo.id}`}
-                        >
-                          Edit keywords
-                        </label>
-                        <textarea
-                          autoFocus
-                          className="min-h-20 w-full rounded-lg border border-white/15 bg-black/30 px-3 py-2 text-sm text-white outline-none ring-[#FF6A38]/40 placeholder:text-neutral-500 focus:ring-2"
-                          id={`keywords-${photo.id}`}
-                          value={editingKeywords[photo.id] ?? ''}
-                          onChange={(event) =>
-                            setEditingKeywords((current) => ({
-                              ...current,
-                              [photo.id]: event.target.value,
-                            }))
-                          }
-                        />
-                        <Button
-                          className="w-full"
-                          disabled={suggestingPhotoId === photo.id || savingPhotoId === photo.id}
-                          type="button"
-                          variant="outline"
-                          onClick={() => void suggestKeywords(photo.id)}
-                        >
-                          <Sparkles className="mr-2 h-4 w-4" />
-                          {suggestingPhotoId === photo.id
-                            ? 'Suggesting...'
-                            : 'Suggest keywords'}
-                        </Button>
-                        <Button
-                          className="w-full"
-                          disabled={savingPhotoId === photo.id || suggestingPhotoId === photo.id}
-                          type="button"
-                          onClick={() => void saveKeywords(photo.id)}
-                        >
-                          <Save className="mr-2 h-4 w-4" />
-                          {savingPhotoId === photo.id ? 'Saving...' : 'Save keywords'}
-                        </Button>
-                        <Button
-                          className="w-full"
-                          disabled={savingPhotoId === photo.id || suggestingPhotoId === photo.id}
-                          type="button"
-                          variant="outline"
-                          onClick={() => cancelEditingKeywords(photo)}
-                        >
-                          Cancel
-                        </Button>
-                      </>
-                    ) : (
-                      <Button
-                        className="w-full"
-                        type="button"
-                        variant="outline"
-                        onClick={() => startEditingKeywords(photo)}
-                      >
-                        <Pencil className="mr-2 h-4 w-4" />
-                        Edit keywords
-                      </Button>
-                    )}
-                    <Button
-                      className="w-full border-red-400/40 text-red-200 hover:bg-red-500/10 hover:text-red-100"
-                      type="button"
-                      variant="outline"
-                      onClick={() => requestPhotoDeletion([photo.id])}
-                    >
-                      <Trash2 className="mr-2 h-4 w-4" />
-                      Delete photo
-                    </Button>
-                  </div>
-                </div>
+                </button>
               </article>
             ))}
           </div>
         </section>
       </div>
+
+      {detailPhoto ? (
+        <div
+          aria-labelledby="photo-detail-title"
+          aria-modal="true"
+          className="fixed inset-0 z-40 overflow-y-auto bg-black/80 p-4 backdrop-blur-md sm:p-8"
+          role="dialog"
+        >
+          <div className="flex min-h-full items-center justify-center">
+            <section className="glass-surface w-full max-w-5xl overflow-hidden rounded-3xl">
+              <header className="flex items-center justify-between gap-4 border-b border-white/10 px-5 py-4 sm:px-6">
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-[0.25em] text-[#FF6A38]">
+                    Photo detail
+                  </p>
+                  <h2 className="mt-1 text-xl font-semibold" id="photo-detail-title">
+                    {detailPhoto.name ?? 'Untitled photo'}
+                  </h2>
+                </div>
+                <Button
+                  aria-label="Close photo detail"
+                  className="h-10 w-10 shrink-0 rounded-full p-0"
+                  disabled={Boolean(savingPhotoId || suggestingPhotoId)}
+                  type="button"
+                  variant="outline"
+                  onClick={closePhotoDetail}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </header>
+
+              <div className="grid lg:grid-cols-[minmax(0,1.25fr)_minmax(20rem,0.75fr)]">
+                <div className="flex items-center justify-center bg-black/35 p-4 sm:p-6">
+                  <img
+                    alt={detailPhoto.name ?? 'Uploaded visual reference'}
+                    className="max-h-[70vh] w-full rounded-2xl object-contain"
+                    src={`${apiBaseUrl}${detailPhoto.url}`}
+                  />
+                </div>
+
+                <div className="space-y-6 border-t border-white/10 p-5 lg:border-l lg:border-t-0 lg:p-6">
+                  <div>
+                    <p className="text-sm text-neutral-400">Date added</p>
+                    <p className="mt-1 text-sm text-neutral-200">
+                      {new Date(detailPhoto.createdAt).toLocaleString()}
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className="text-sm font-medium text-neutral-300">Keywords</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {detailPhoto.keywords.map((keyword, index) => (
+                        <span
+                          className={keywordChipClassName}
+                          key={`${keyword}-${index}`}
+                        >
+                          {keyword}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  {detailSuggestedKeywords !== undefined ? (
+                    <div className="rounded-xl border border-[#76BCDF]/20 bg-[#76BCDF]/[0.06] p-4">
+                      <p className="text-sm font-medium text-[#9dd5f1]">
+                        Suggested additions
+                      </p>
+                      {detailSuggestedKeywords.length > 0 ? (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {detailSuggestedKeywords.map((keyword, index) => (
+                            <span
+                              className="max-w-full truncate rounded-full bg-[#76BCDF]/10 px-2.5 py-1 text-xs font-medium text-[#b9e2f6]"
+                              key={`${keyword}-${index}`}
+                            >
+                              {keyword}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-2 text-sm text-neutral-400">
+                          No new keywords were suggested.
+                        </p>
+                      )}
+                    </div>
+                  ) : null}
+
+                  {message ? (
+                    <p className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-neutral-300">
+                      {message}
+                    </p>
+                  ) : null}
+
+                  <div className="space-y-2 border-t border-white/10 pt-5">
+                    <label
+                      className="text-sm font-medium text-neutral-300"
+                      htmlFor={`keywords-${detailPhoto.id}`}
+                    >
+                      Edit keywords
+                    </label>
+                    <textarea
+                      className="min-h-28 w-full rounded-lg border border-white/15 bg-black/30 px-3 py-2 text-sm text-white outline-none ring-[#FF6A38]/40 placeholder:text-neutral-500 focus:ring-2"
+                      id={`keywords-${detailPhoto.id}`}
+                      value={editingKeywords[detailPhoto.id] ?? ''}
+                      onChange={(event) =>
+                        setEditingKeywords((current) => ({
+                          ...current,
+                          [detailPhoto.id]: event.target.value,
+                        }))
+                      }
+                    />
+                    {detailSuggestedKeywords !== undefined ? (
+                      <p className="rounded-lg border border-[#76BCDF]/20 bg-[#76BCDF]/[0.06] px-3 py-2 text-sm text-[#b9e2f6]">
+                        {detailSuggestedKeywords.length > 0
+                          ? `${detailSuggestedKeywords.length} suggested ${detailSuggestedKeywords.length === 1 ? 'keyword has' : 'keywords have'} been added to the edit box.`
+                          : 'The current edit box already contains the suggested keywords.'}
+                      </p>
+                    ) : null}
+                    {hasKeywordChanges ? (
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <Button
+                          className="w-full"
+                          disabled={
+                            savingPhotoId === detailPhoto.id ||
+                            suggestingPhotoId === detailPhoto.id
+                          }
+                          type="button"
+                          variant="outline"
+                          onClick={() => cancelKeywordChanges(detailPhoto)}
+                        >
+                          Cancel changes
+                        </Button>
+                        <Button
+                          className="w-full"
+                          disabled={
+                            savingPhotoId === detailPhoto.id ||
+                            suggestingPhotoId === detailPhoto.id
+                          }
+                          type="button"
+                          onClick={() => void saveKeywords(detailPhoto.id)}
+                        >
+                          <Save className="mr-2 h-4 w-4" />
+                          {savingPhotoId === detailPhoto.id
+                            ? 'Saving...'
+                            : 'Save changes'}
+                        </Button>
+                      </div>
+                    ) : null}
+                    <div className="space-y-2 pt-5">
+                      <Button
+                        className="w-full"
+                        disabled={
+                          suggestingPhotoId === detailPhoto.id ||
+                          savingPhotoId === detailPhoto.id
+                        }
+                        type="button"
+                        variant="outline"
+                        onClick={() => void suggestKeywords(detailPhoto.id)}
+                      >
+                        <Sparkles className="mr-2 h-4 w-4" />
+                        {suggestingPhotoId === detailPhoto.id
+                          ? 'Suggesting...'
+                          : 'Suggest keywords'}
+                      </Button>
+                      <Button
+                        className="w-full border-red-400/40 text-red-200 hover:bg-red-500/10 hover:text-red-100"
+                        disabled={Boolean(savingPhotoId || suggestingPhotoId)}
+                        type="button"
+                        variant="outline"
+                        onClick={() => requestPhotoDeletion([detailPhoto.id])}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Delete photo
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+      ) : null}
 
       {photosPendingDelete ? (
         <div
