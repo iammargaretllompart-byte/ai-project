@@ -2,7 +2,7 @@ import 'dotenv/config'
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { generateText, stepCountIs, tool, type UserContent } from 'ai'
 import cors from 'cors'
-import express from 'express'
+import express, { type ErrorRequestHandler } from 'express'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import multer from 'multer'
@@ -48,6 +48,20 @@ type SearchDebug = {
   }
 }
 
+type UploadJob = {
+  id: string
+  status: 'processing' | 'completed'
+  total: number
+  processed: number
+  succeeded: number
+  uploadedPhotoIds: string[]
+  currentFile?: string
+  errors: Array<{
+    filename: string
+    message: string
+  }>
+}
+
 const app = express()
 const port = Number(process.env.PORT ?? 4000)
 const aiApiKey = process.env.AI_API_KEY
@@ -56,6 +70,7 @@ const aiModel = process.env.AI_MODEL ?? 'qwen3.7-plus'
 const dataDir = path.resolve('data')
 const uploadsDir = path.resolve('uploads')
 const photosFile = path.join(dataDir, 'photos.json')
+const uploadJobs = new Map<string, UploadJob>()
 
 const upload = multer({
   storage: multer.diskStorage({
@@ -158,44 +173,44 @@ app.post('/photos', upload.array('photos', 20), async (request, response, next) 
       return
     }
 
-    const photos = await readPhotos()
-    const uploadedPhotos: Photo[] = []
+    const requestedJobId =
+      typeof request.body.jobId === 'string' ? request.body.jobId.trim() : ''
+    const jobId = requestedJobId || crypto.randomUUID()
 
-    for (const file of files) {
-      const keywords = await suggestKeywords(
-        {
-          originalName: file.originalname,
-          existingKeywords: [],
-          imagePath: file.path,
-          mimeType: file.mimetype,
-        },
-        true,
-      )
-      const name = await generatePhotoName({
-        imagePath: file.path,
-        mimeType: file.mimetype,
-        keywords,
-      })
-
-      uploadedPhotos.push({
-        id: crypto.randomUUID(),
-        name,
-        originalName: file.originalname,
-        filename: file.filename,
-        url: `/uploads/${file.filename}`,
-        keywords,
-        createdAt: new Date().toISOString(),
-      })
+    if (uploadJobs.has(jobId)) {
+      await Promise.all(files.map((file) => fs.rm(file.path, { force: true })))
+      response.status(409).json({ error: 'This upload job already exists' })
+      return
     }
 
-    photos.unshift(...uploadedPhotos)
-    await writePhotos(photos)
+    const job: UploadJob = {
+      id: jobId,
+      status: 'processing',
+      total: files.length,
+      processed: 0,
+      succeeded: 0,
+      uploadedPhotoIds: [],
+      errors: [],
+    }
+    uploadJobs.set(jobId, job)
+    void processUploadJob(job, files)
 
-    response.status(201).json({ photos: uploadedPhotos })
+    response.status(202).json({ jobId })
   } catch (error) {
     await Promise.all(files.map((file) => fs.rm(file.path, { force: true })))
     next(error)
   }
+})
+
+app.get('/upload-jobs/:id', (request, response) => {
+  const job = uploadJobs.get(request.params.id)
+
+  if (!job) {
+    response.status(404).json({ error: 'Upload job not found' })
+    return
+  }
+
+  response.json(job)
 })
 
 app.post('/photos/:id/suggest-keywords', async (request, response, next) => {
@@ -290,6 +305,60 @@ async function ensureStorage() {
   } catch {
     await fs.writeFile(photosFile, '[]\n')
   }
+}
+
+async function processUploadJob(job: UploadJob, files: Express.Multer.File[]) {
+  for (const file of files) {
+    job.currentFile = file.originalname
+
+    try {
+      const keywords = await suggestKeywords(
+        {
+          originalName: file.originalname,
+          existingKeywords: [],
+          imagePath: file.path,
+          mimeType: file.mimetype,
+        },
+        true,
+      )
+      const name = await generatePhotoName({
+        imagePath: file.path,
+        mimeType: file.mimetype,
+        keywords,
+      })
+      const photo: Photo = {
+        id: crypto.randomUUID(),
+        name,
+        originalName: file.originalname,
+        filename: file.filename,
+        url: `/uploads/${file.filename}`,
+        keywords,
+        createdAt: new Date().toISOString(),
+      }
+      const photos = await readPhotos()
+      photos.unshift(photo)
+      await writePhotos(photos)
+      job.succeeded += 1
+      job.uploadedPhotoIds.push(photo.id)
+    } catch (error) {
+      await fs.rm(file.path, { force: true })
+      job.errors.push({
+        filename: file.originalname,
+        message:
+          error instanceof Error && error.message
+            ? error.message
+            : 'AI could not analyze this photo',
+      })
+    } finally {
+      job.processed += 1
+    }
+  }
+
+  job.currentFile = undefined
+  job.status = 'completed'
+
+  const cleanupTimer = setTimeout(() => uploadJobs.delete(job.id), 60 * 60 * 1000)
+  cleanupTimer.unref()
 }
 
 async function readPhotos(): Promise<Photo[]> {
@@ -726,6 +795,27 @@ function scorePhoto(
     return score + matchingTerms.length
   }, 0)
 }
+
+const errorHandler: ErrorRequestHandler = (error, _request, response, _next) => {
+  if (error instanceof multer.MulterError) {
+    const message =
+      error.code === 'LIMIT_UNEXPECTED_FILE'
+        ? 'You can upload up to 20 photos at a time'
+        : error.message
+    response.status(400).json({ error: message })
+    return
+  }
+
+  if (error instanceof Error && error.message === 'Only image uploads are allowed') {
+    response.status(400).json({ error: error.message })
+    return
+  }
+
+  console.error('Request failed', error)
+  response.status(500).json({ error: 'The request could not be completed' })
+}
+
+app.use(errorHandler)
 
 await ensureStorage()
 

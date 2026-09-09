@@ -1,10 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
+  AlertCircle,
   ArrowLeft,
   ArrowRight,
+  CheckCircle2,
   ImagePlus,
   LoaderCircle,
-  RefreshCcw,
   Save,
   Search,
   Sparkles,
@@ -17,6 +18,10 @@ import {
 import { Button } from '@/components/ui/button'
 
 const apiBaseUrl = 'http://localhost:4000'
+const activeUploadJobKey = 'visual-library-active-upload-job'
+const uploadStartedEvent = 'visual-library-upload-started'
+const uploadCompletedEvent = 'visual-library-upload-completed'
+const uploadFailedEvent = 'visual-library-upload-failed'
 
 type Photo = {
   id: string
@@ -55,39 +60,245 @@ type SearchDebug = {
   }
 }
 
-function App() {
-  if (window.location.pathname === '/admin') {
-    return <AdminPage />
-  }
+type UploadJob = {
+  id: string
+  status: 'processing' | 'completed'
+  total: number
+  processed: number
+  succeeded: number
+  uploadedPhotoIds: string[]
+  currentFile?: string
+  errors: Array<{
+    filename: string
+    message: string
+  }>
+}
 
-  if (window.location.pathname === '/search') {
-    return <SearchPage />
+type UploadToast = {
+  kind: 'success' | 'error'
+  message: string
+}
+
+function App() {
+  let page
+
+  if (window.location.pathname === '/admin') {
+    page = <AdminPage />
+  } else if (window.location.pathname === '/search') {
+    page = <SearchPage />
+  } else {
+    page = (
+      <main className="app-canvas min-h-screen text-white">
+        <section className="mx-auto flex min-h-screen max-w-5xl flex-col items-center justify-center px-6 py-20 text-center">
+          <p className="mb-4 rounded-full border border-[#FF6A38]/30 bg-[#FF6A38]/10 px-4 py-1 text-sm font-medium text-[#ffb39a]">
+            Vite + React + TypeScript + Tailwind + shadcn/ui
+          </p>
+          <h1 className="max-w-3xl text-5xl font-bold tracking-tight sm:text-7xl">
+            Build the frontend without fighting the stack.
+          </h1>
+          <p className="mt-6 max-w-2xl text-lg leading-8 text-neutral-300">
+            A clean modern starter with typed React, utility-first styling, and
+            local, customizable UI components.
+          </p>
+          <div className="mt-10 flex flex-col gap-3 sm:flex-row">
+            <Button size="lg">
+              Start building
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Button>
+            <Button size="lg" variant="outline">
+              View components
+            </Button>
+          </div>
+        </section>
+      </main>
+    )
   }
 
   return (
-    <main className="app-canvas min-h-screen text-white">
-      <section className="mx-auto flex min-h-screen max-w-5xl flex-col items-center justify-center px-6 py-20 text-center">
-        <p className="mb-4 rounded-full border border-[#FF6A38]/30 bg-[#FF6A38]/10 px-4 py-1 text-sm font-medium text-[#ffb39a]">
-          Vite + React + TypeScript + Tailwind + shadcn/ui
-        </p>
-        <h1 className="max-w-3xl text-5xl font-bold tracking-tight sm:text-7xl">
-          Build the frontend without fighting the stack.
-        </h1>
-        <p className="mt-6 max-w-2xl text-lg leading-8 text-neutral-300">
-          A clean modern starter with typed React, utility-first styling, and
-          local, customizable UI components.
-        </p>
-        <div className="mt-10 flex flex-col gap-3 sm:flex-row">
-          <Button size="lg">
-            Start building
-            <ArrowRight className="ml-2 h-4 w-4" />
-          </Button>
-          <Button size="lg" variant="outline">
-            View components
-          </Button>
+    <>
+      <UploadActivity />
+      {page}
+    </>
+  )
+}
+
+function UploadActivity() {
+  const [jobId, setJobId] = useState(() => localStorage.getItem(activeUploadJobKey))
+  const [job, setJob] = useState<UploadJob | null>(null)
+  const [toast, setToast] = useState<UploadToast | null>(null)
+
+  useEffect(() => {
+    function uploadStarted(event: Event) {
+      const detail = (event as CustomEvent<{ jobId: string; total: number }>).detail
+      setJobId(detail.jobId)
+      setJob({
+        id: detail.jobId,
+        status: 'processing',
+        total: detail.total,
+        processed: 0,
+        succeeded: 0,
+        uploadedPhotoIds: [],
+        errors: [],
+      })
+      setToast(null)
+    }
+
+    function uploadFailed(event: Event) {
+      localStorage.removeItem(activeUploadJobKey)
+      setJobId(null)
+      setJob(null)
+      setToast({
+        kind: 'error',
+        message: (event as CustomEvent<string>).detail,
+      })
+    }
+
+    window.addEventListener(uploadStartedEvent, uploadStarted)
+    window.addEventListener(uploadFailedEvent, uploadFailed)
+    return () => {
+      window.removeEventListener(uploadStartedEvent, uploadStarted)
+      window.removeEventListener(uploadFailedEvent, uploadFailed)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!jobId) {
+      return
+    }
+
+    let isActive = true
+
+    async function pollJob() {
+      try {
+        const response = await fetch(`${apiBaseUrl}/upload-jobs/${jobId}`)
+
+        if (response.status === 404) {
+          return
+        }
+
+        if (!response.ok) {
+          throw new Error('Could not read upload progress')
+        }
+
+        const nextJob = (await response.json()) as UploadJob
+
+        if (!isActive) {
+          return
+        }
+
+        setJob(nextJob)
+
+        if (nextJob.status === 'completed') {
+          localStorage.removeItem(activeUploadJobKey)
+          setJobId(null)
+          window.dispatchEvent(new CustomEvent(uploadCompletedEvent))
+
+          if (nextJob.errors.length === 0) {
+            setToast({
+              kind: 'success',
+              message: `${nextJob.succeeded} ${nextJob.succeeded === 1 ? 'reference' : 'references'} uploaded successfully.`,
+            })
+          } else {
+            const firstError = nextJob.errors[0]
+            setToast({
+              kind: 'error',
+              message: `${nextJob.succeeded} uploaded, ${nextJob.errors.length} failed. ${firstError.filename}: ${firstError.message}`,
+            })
+          }
+        }
+      } catch (error) {
+        if (!isActive) {
+          return
+        }
+
+        localStorage.removeItem(activeUploadJobKey)
+        setJobId(null)
+        setJob(null)
+        setToast({
+          kind: 'error',
+          message:
+            error instanceof Error ? error.message : 'Could not track the upload.',
+        })
+      }
+    }
+
+    void pollJob()
+    const interval = window.setInterval(() => void pollJob(), 1000)
+    return () => {
+      isActive = false
+      window.clearInterval(interval)
+    }
+  }, [jobId])
+
+  useEffect(() => {
+    if (!toast) {
+      return
+    }
+
+    const timeout = window.setTimeout(() => setToast(null), 7000)
+    return () => window.clearTimeout(timeout)
+  }, [toast])
+
+  const progress = job ? Math.round((job.processed / job.total) * 100) : 0
+
+  return (
+    <>
+      {jobId ? (
+        <div
+          aria-live="polite"
+          className="fixed left-1/2 top-4 z-[60] w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 rounded-2xl border border-[#FF6A38]/30 bg-neutral-950/90 p-4 text-white shadow-2xl shadow-black/50 backdrop-blur-xl"
+          role="status"
+        >
+          <div className="flex items-start gap-3">
+            <LoaderCircle className="mt-0.5 h-5 w-5 shrink-0 animate-spin text-[#FF6A38]" />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between gap-4">
+                <p className="font-medium">Uploading references</p>
+                <p className="text-sm text-neutral-400">
+                  {job?.processed ?? 0} of {job?.total ?? '...'}
+                </p>
+              </div>
+              <p className="mt-1 truncate text-sm text-neutral-400">
+                {job?.currentFile ?? 'Preparing photos for AI analysis...'}
+              </p>
+              <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/10">
+                <div
+                  className="h-full rounded-full bg-[#FF6A38] transition-[width] duration-500"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+            </div>
+          </div>
         </div>
-      </section>
-    </main>
+      ) : null}
+
+      {toast ? (
+        <div
+          aria-live="assertive"
+          className={`fixed bottom-5 right-5 z-[70] flex max-w-md items-start gap-3 rounded-2xl border p-4 text-white shadow-2xl shadow-black/50 backdrop-blur-xl ${
+            toast.kind === 'success'
+              ? 'border-emerald-400/30 bg-emerald-950/90'
+              : 'border-red-400/30 bg-red-950/90'
+          }`}
+          role="alert"
+        >
+          {toast.kind === 'success' ? (
+            <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-300" />
+          ) : (
+            <AlertCircle className="h-5 w-5 shrink-0 text-red-300" />
+          )}
+          <p className="text-sm leading-5">{toast.message}</p>
+          <button
+            aria-label="Dismiss notification"
+            className="ml-2 text-neutral-400 transition-colors hover:text-white"
+            type="button"
+            onClick={() => setToast(null)}
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      ) : null}
+    </>
   )
 }
 
@@ -203,6 +414,47 @@ function KeywordPreview({ keywords }: { keywords: string[] }) {
         ) : null}
       </div>
     </div>
+  )
+}
+
+function PendingPhotoPreview({
+  disabled,
+  file,
+  onRemove,
+}: {
+  disabled: boolean
+  file: File
+  onRemove: () => void
+}) {
+  const [previewUrl] = useState(() => URL.createObjectURL(file))
+
+  useEffect(() => {
+    return () => URL.revokeObjectURL(previewUrl)
+  }, [previewUrl])
+
+  return (
+    <li className="flex min-w-0 items-center gap-3 rounded-xl border border-white/10 bg-black/25 p-2">
+      <img
+        alt=""
+        className="h-14 w-14 shrink-0 rounded-lg object-cover"
+        src={previewUrl}
+      />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium text-neutral-200">{file.name}</p>
+        <p className="mt-1 text-xs text-neutral-500">
+          {(file.size / 1024 / 1024).toFixed(1)} MB
+        </p>
+      </div>
+      <button
+        aria-label={`Remove ${file.name} from upload`}
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 text-neutral-400 transition-colors hover:border-red-400/40 hover:bg-red-500/10 hover:text-red-200 disabled:pointer-events-none disabled:opacity-50"
+        disabled={disabled}
+        type="button"
+        onClick={onRemove}
+      >
+        <X className="h-4 w-4" />
+      </button>
+    </li>
   )
 }
 
@@ -544,7 +796,11 @@ function AdminPage() {
     Record<string, string[] | undefined>
   >({})
   const [isLoading, setIsLoading] = useState(true)
-  const [isUploading, setIsUploading] = useState(false)
+  const [isUploading, setIsUploading] = useState(() =>
+    Boolean(localStorage.getItem(activeUploadJobKey)),
+  )
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false)
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false)
   const [savingPhotoId, setSavingPhotoId] = useState<string | null>(null)
   const [suggestingPhotoId, setSuggestingPhotoId] = useState<string | null>(null)
   const [detailPhotoId, setDetailPhotoId] = useState<string | null>(null)
@@ -555,6 +811,24 @@ function AdminPage() {
 
   useEffect(() => {
     void loadPhotos()
+  }, [])
+
+  useEffect(() => {
+    function uploadCompleted() {
+      setIsUploading(false)
+      void syncPhotosAfterUpload()
+    }
+
+    function uploadFailed() {
+      setIsUploading(false)
+    }
+
+    window.addEventListener(uploadCompletedEvent, uploadCompleted)
+    window.addEventListener(uploadFailedEvent, uploadFailed)
+    return () => {
+      window.removeEventListener(uploadCompletedEvent, uploadCompleted)
+      window.removeEventListener(uploadFailedEvent, uploadFailed)
+    }
   }, [])
 
   useEffect(() => {
@@ -598,6 +872,30 @@ function AdminPage() {
     }
   }, [detailPhotoId, photosPendingDelete, savingPhotoId, suggestingPhotoId])
 
+  useEffect(() => {
+    if (!isUploadModalOpen) {
+      return
+    }
+
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape' && !isUploading) {
+        setSelectedFiles([])
+        setIsDraggingFiles(false)
+        setMessage('')
+        setIsUploadModalOpen(false)
+      }
+    }
+
+    window.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [isUploadModalOpen, isUploading])
+
   async function loadPhotos() {
     setIsLoading(true)
     setMessage('')
@@ -634,14 +932,28 @@ function AdminPage() {
       return
     }
 
-    setIsUploading(true)
+    const filesToUpload = selectedFiles
+    const jobId = crypto.randomUUID()
     setMessage('')
 
     const formData = new FormData()
+    formData.append('jobId', jobId)
 
-    for (const file of selectedFiles) {
+    for (const file of filesToUpload) {
       formData.append('photos', file)
     }
+
+    setIsUploading(true)
+    setSelectedFiles([])
+    setIsDraggingFiles(false)
+    setIsUploadModalOpen(false)
+    event.currentTarget.reset()
+    localStorage.setItem(activeUploadJobKey, jobId)
+    window.dispatchEvent(
+      new CustomEvent(uploadStartedEvent, {
+        detail: { jobId, total: filesToUpload.length },
+      }),
+    )
 
     try {
       const response = await fetch(`${apiBaseUrl}/photos`, {
@@ -650,20 +962,105 @@ function AdminPage() {
       })
 
       if (!response.ok) {
-        throw new Error('Could not upload photos')
+        const data = (await response.json().catch(() => null)) as { error?: string } | null
+        throw new Error(data?.error ?? 'Could not start the upload')
+      }
+    } catch (error) {
+      setIsUploading(false)
+      window.dispatchEvent(
+        new CustomEvent(uploadFailedEvent, {
+          detail:
+            error instanceof Error
+              ? error.message
+              : 'Could not upload the selected photos.',
+        }),
+      )
+    }
+  }
+
+  async function syncPhotosAfterUpload() {
+    try {
+      const response = await fetch(`${apiBaseUrl}/photos`)
+
+      if (!response.ok) {
+        return
       }
 
-      const uploadedCount = selectedFiles.length
-      setSelectedFiles([])
-      event.currentTarget.reset()
-      await loadPhotos()
-      setMessage(
-        `${uploadedCount} ${uploadedCount === 1 ? 'photo' : 'photos'} uploaded.`,
+      const nextPhotos = (await response.json()) as Photo[]
+      const nextPhotoIds = new Set(nextPhotos.map((photo) => photo.id))
+      setPhotos(nextPhotos)
+      setSelectedPhotoIds((current) =>
+        current.filter((id) => nextPhotoIds.has(id)),
+      )
+      setEditingKeywords((current) =>
+        Object.fromEntries(
+          nextPhotos.map((photo) => [
+            photo.id,
+            current[photo.id] ?? photo.keywords.join(', '),
+          ]),
+        ),
       )
     } catch {
-      setMessage('Could not upload the selected photos. Please try again.')
-    } finally {
-      setIsUploading(false)
+      // The global completion toast remains valid even if this view refresh fails.
+    }
+  }
+
+  function addSelectedFiles(files: File[]) {
+    const imageFiles = files.filter((file) => file.type.startsWith('image/'))
+    const existingFiles = new Set(
+      selectedFiles.map((file) => `${file.name}:${file.size}:${file.lastModified}`),
+    )
+    const additions = imageFiles.filter((file) => {
+      const key = `${file.name}:${file.size}:${file.lastModified}`
+
+      if (existingFiles.has(key)) {
+        return false
+      }
+
+      existingFiles.add(key)
+      return true
+    })
+    const availableSlots = Math.max(0, 20 - selectedFiles.length)
+
+    if (imageFiles.length !== files.length) {
+      setMessage('Only image files can be added to the upload queue.')
+    } else if (additions.length > availableSlots) {
+      setMessage('You can upload up to 20 photos at a time.')
+    } else {
+      setMessage('')
+    }
+
+    setSelectedFiles([...selectedFiles, ...additions.slice(0, availableSlots)])
+  }
+
+  function openUploadModal() {
+    setMessage('')
+    setSelectedFiles([])
+    setIsDraggingFiles(false)
+    setIsUploadModalOpen(true)
+  }
+
+  function closeUploadModal() {
+    if (isUploading) {
+      return
+    }
+
+    setSelectedFiles([])
+    setIsDraggingFiles(false)
+    setMessage('')
+    setIsUploadModalOpen(false)
+  }
+
+  function removeSelectedFile(fileToRemove: File) {
+    setSelectedFiles((current) => current.filter((file) => file !== fileToRemove))
+  }
+
+  function dropPhotos(event: React.DragEvent<HTMLDivElement>) {
+    event.preventDefault()
+    setIsDraggingFiles(false)
+
+    if (!isUploading) {
+      addSelectedFiles(Array.from(event.dataTransfer.files))
     }
   }
 
@@ -875,7 +1272,7 @@ function AdminPage() {
           </Button>
         </nav>
 
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <p className="text-sm font-medium uppercase tracking-[0.3em] text-[#FF6A38]">
               Admin
@@ -888,48 +1285,11 @@ function AdminPage() {
               the library grows.
             </p>
           </div>
-          <Button variant="outline" onClick={() => void loadPhotos()}>
-            <RefreshCcw className="mr-2 h-4 w-4" />
-            Refresh
+          <Button disabled={isUploading} type="button" onClick={openUploadModal}>
+            <ImagePlus className="mr-2 h-4 w-4" />
+            {isUploading ? 'Upload in progress' : 'Upload references'}
           </Button>
         </div>
-
-        <form
-          className="glass-surface mt-8 rounded-2xl p-5"
-          onSubmit={(event) => void uploadPhoto(event)}
-        >
-          <div className="flex items-center gap-3">
-            <div className="rounded-xl bg-[#FF6A38] p-2 text-black">
-              <ImagePlus className="h-5 w-5" />
-            </div>
-            <div>
-              <h2 className="font-semibold">Upload photos</h2>
-              <p className="text-sm text-neutral-400">
-                Choose one or more images. AI will name and keyword each one automatically.
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_auto]">
-            <input
-              accept="image/*"
-              className="rounded-lg border border-white/15 bg-black/30 px-3 py-2 text-sm text-neutral-200 file:mr-4 file:rounded-md file:border-0 file:bg-[#FF6A38] file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-black"
-              multiple
-              type="file"
-              onChange={(event) =>
-                setSelectedFiles(Array.from(event.target.files ?? []))
-              }
-            />
-            <Button disabled={isUploading || selectedFiles.length === 0} type="submit">
-              <Upload className="mr-2 h-4 w-4" />
-              {isUploading
-                ? `Uploading ${selectedFiles.length}...`
-                : selectedFiles.length > 1
-                  ? `Upload ${selectedFiles.length} photos`
-                  : 'Upload photo'}
-            </Button>
-          </div>
-        </form>
 
         {message ? (
           <p className="glass-surface mt-4 rounded-lg px-4 py-3 text-sm text-neutral-200">
@@ -1025,6 +1385,144 @@ function AdminPage() {
           </div>
         </section>
       </div>
+
+      {isUploadModalOpen ? (
+        <div
+          aria-labelledby="upload-modal-title"
+          aria-modal="true"
+          className="fixed inset-0 z-40 overflow-y-auto bg-black/80 p-4 backdrop-blur-md sm:p-8"
+          role="dialog"
+        >
+          <div className="flex min-h-full items-center justify-center">
+            <section className="glass-surface w-full max-w-3xl overflow-hidden rounded-3xl">
+              <header className="flex items-center justify-between gap-4 border-b border-white/10 px-5 py-4 sm:px-6">
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-[0.25em] text-[#FF6A38]">
+                    Add to library
+                  </p>
+                  <h2 className="mt-1 text-xl font-semibold" id="upload-modal-title">
+                    Upload references
+                  </h2>
+                </div>
+                <Button
+                  aria-label="Close upload"
+                  className="h-10 w-10 shrink-0 rounded-full p-0"
+                  disabled={isUploading}
+                  type="button"
+                  variant="outline"
+                  onClick={closeUploadModal}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </header>
+
+              <form className="p-5 sm:p-6" onSubmit={(event) => void uploadPhoto(event)}>
+                <p className="text-sm text-neutral-400">
+                  Choose one or more images. AI will name and keyword each one automatically.
+                </p>
+
+                <div
+                  className={`mt-5 rounded-2xl border border-dashed p-8 text-center transition-colors ${
+                    isDraggingFiles
+                      ? 'border-[#FF6A38] bg-[#FF6A38]/10'
+                      : 'border-white/20 bg-black/25 hover:border-white/35 hover:bg-white/[0.03]'
+                  }`}
+                  onDragEnter={(event) => {
+                    event.preventDefault()
+                    if (!isUploading) setIsDraggingFiles(true)
+                  }}
+                  onDragLeave={(event) => {
+                    if (
+                      !(event.relatedTarget instanceof Node) ||
+                      !event.currentTarget.contains(event.relatedTarget)
+                    ) {
+                      setIsDraggingFiles(false)
+                    }
+                  }}
+                  onDragOver={(event) => {
+                    event.preventDefault()
+                    event.dataTransfer.dropEffect = 'copy'
+                  }}
+                  onDrop={dropPhotos}
+                >
+                  <Upload className="mx-auto h-8 w-8 text-[#FF6A38]" />
+                  <p className="mt-3 font-medium">
+                    {isDraggingFiles
+                      ? 'Drop photos here'
+                      : 'Drag and drop photos here'}
+                  </p>
+                  <p className="mt-1 text-sm text-neutral-400">
+                    or choose images from your device
+                  </p>
+                  <label className="mt-4 inline-flex h-10 cursor-pointer items-center justify-center rounded-md border border-white/15 bg-white/[0.03] px-4 py-2 text-sm font-medium text-neutral-100 transition-colors hover:bg-white/[0.08] hover:text-white">
+                    Browse photos
+                    <input
+                      accept="image/*"
+                      className="sr-only"
+                      disabled={isUploading}
+                      multiple
+                      type="file"
+                      onChange={(event) => {
+                        addSelectedFiles(Array.from(event.target.files ?? []))
+                        event.currentTarget.value = ''
+                      }}
+                    />
+                  </label>
+                </div>
+
+                {message ? (
+                  <p className="mt-4 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-neutral-300">
+                    {message}
+                  </p>
+                ) : null}
+
+                {selectedFiles.length > 0 ? (
+                  <div className="mt-5">
+                    <div className="flex items-center justify-between gap-4">
+                      <p className="text-sm font-medium text-neutral-200">
+                        {selectedFiles.length}{' '}
+                        {selectedFiles.length === 1 ? 'photo' : 'photos'} ready
+                      </p>
+                      <button
+                        className="text-sm text-neutral-400 transition-colors hover:text-white disabled:pointer-events-none disabled:opacity-50"
+                        disabled={isUploading}
+                        type="button"
+                        onClick={() => setSelectedFiles([])}
+                      >
+                        Remove all
+                      </button>
+                    </div>
+                    <ul className="mt-3 grid max-h-64 gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
+                      {selectedFiles.map((file) => (
+                        <PendingPhotoPreview
+                          disabled={isUploading}
+                          file={file}
+                          key={`${file.name}:${file.size}:${file.lastModified}`}
+                          onRemove={() => removeSelectedFile(file)}
+                        />
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+
+                <div className="mt-6 flex justify-end">
+                  <Button
+                    disabled={isUploading || selectedFiles.length === 0}
+                    type="submit"
+                  >
+                    <Upload className="mr-2 h-4 w-4" />
+                    {isUploading
+                      ? `Uploading ${selectedFiles.length}...`
+                      : selectedFiles.length > 1
+                        ? `Upload ${selectedFiles.length} photos`
+                        : 'Upload photo'}
+                  </Button>
+                </div>
+              </form>
+            </section>
+          </div>
+        </div>
+      ) : null}
 
       {detailPhoto ? (
         <div
