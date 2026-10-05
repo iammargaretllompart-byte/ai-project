@@ -7,7 +7,7 @@
     --canvas: 9 9 9;
     --surface: 24 24 24;
     --surface-strong: 31 31 31;
-    --accent: 107 162 221;
+    --accent: 133 185 241;
     --font-heading: 'Crimson Pro', Georgia, 'Times New Roman', serif;
     font-family:
       Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
@@ -53,8 +53,9 @@
   .app-canvas {
     background-color: rgb(var(--canvas));
     background-image:
-      radial-gradient(ellipse 58% 44% at 26% 112%, rgb(var(--accent) / 62%), transparent 70%),
-      radial-gradient(ellipse 58% 44% at 74% 112%, rgb(118 188 223 / 56%), transparent 70%);
+      radial-gradient(ellipse 65% 95% at 8% 95%, rgb(147 34 36 / 40%), transparent 75%),
+      radial-gradient(ellipse 65% 100% at 50% 110%, rgb(var(--accent) / 34%), transparent 75%),
+      radial-gradient(ellipse 60% 90% at 95% 90%, rgb(202 131 0 / 34%), transparent 75%);
     background-attachment: fixed;
   }
 
@@ -70,7 +71,7 @@
       inset 0 1px 0 rgb(255 255 255 / 4%);
   }
 
-  .search-panel {
+  .frosted-surface {
     background: rgb(0 0 0 / 20%);
     background-image:
       url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='grain'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Cpath fill='%23fff' opacity='.055' filter='url(%23grain)' d='M0 0h160v160H0z'/%3E%3C/svg%3E"),
