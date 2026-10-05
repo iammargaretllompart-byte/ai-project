@@ -773,17 +773,17 @@ function SearchPage() {
       <nav aria-label="Account" className="page-container relative z-10 flex justify-end">
         <AdminAccess />
       </nav>
-      <div className="pointer-events-none relative z-10 mx-auto flex min-h-[calc(100vh-7.75rem)] max-w-3xl items-center px-6 py-10">
-        <section className="glass-surface search-panel pointer-events-auto w-full rounded-3xl p-6 sm:p-10">
+      <div className="pointer-events-none relative z-10 mx-auto flex min-h-[calc(100vh-7.75rem)] w-full items-center justify-center px-6 py-10">
+        <section className="glass-surface search-panel pointer-events-auto w-full rounded-3xl p-6 sm:p-10 md:w-[640px] lg:w-[800px] xl:w-[960px] xl:p-12 min-[1920px]:w-[1040px]">
           <p className="text-sm font-medium uppercase tracking-[0.3em] text-[#6BA2DD]">
             References Search
           </p>
           <h1 className="headline-h1 mt-4">
             Let's search the best references for your project
           </h1>
-          <p className="mt-5 max-w-2xl text-neutral-300">
-            Our agent searches your curated library, reviews the candidates, and
-            selects the references that match best.
+          <p className="mt-5 text-neutral-300">
+            Our agent searches your library, reviews all candidates, and selects
+            the best matching references.
           </p>
 
           <form
