@@ -2,13 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from
 import {
   AlertCircle,
   ArrowLeft,
-  ArrowRight,
   CheckCircle2,
-  ImagePlus,
   LoaderCircle,
-  Save,
-  Search,
-  Sparkles,
   Trash2,
   Upload,
   X,
@@ -146,7 +141,6 @@ function App() {
           <div className="mt-10 flex flex-col gap-3 sm:flex-row">
             <Button size="lg">
               Start building
-              <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
             <Button size="lg" variant="outline">
               View components
@@ -341,7 +335,7 @@ function UploadActivity() {
             type="button"
             onClick={() => setToast(null)}
           >
-            <X className="h-4 w-4" />
+            Dismiss
           </button>
         </div>
       ) : null}
@@ -495,12 +489,12 @@ function PendingPhotoPreview({
       </div>
       <button
         aria-label={`Remove ${file.name} from upload`}
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 text-neutral-400 transition-colors hover:border-red-400/40 hover:bg-red-500/10 hover:text-red-200 disabled:pointer-events-none disabled:opacity-50"
+        className="flex h-9 shrink-0 items-center justify-center rounded-full border border-white/10 px-3 text-sm text-neutral-400 transition-colors hover:border-red-400/40 hover:bg-red-500/10 hover:text-red-200 disabled:pointer-events-none disabled:opacity-50"
         disabled={disabled}
         type="button"
         onClick={onRemove}
       >
-        <X className="h-4 w-4" />
+        Remove
       </button>
     </li>
   )
@@ -825,7 +819,6 @@ function SearchPage() {
               disabled={isSearching || !prompt.trim()}
               type="submit"
             >
-              <Search className="mr-2 h-4 w-4" />
               {isSearching ? 'Searching...' : 'Search references'}
             </Button>
           </form>
@@ -852,7 +845,7 @@ function SearchPage() {
               </div>
               <Button
                 aria-label="Back to search"
-                className="h-10 w-10 shrink-0 p-0"
+                size="icon"
                 title="Back to search"
                 variant="outline"
                 onClick={closeSearch}
@@ -1478,7 +1471,7 @@ function AdminPage() {
           aria-label="Breadcrumb"
           className="mb-10 flex flex-wrap items-center gap-4 border-b border-white/10 pb-5"
         >
-          <Button asChild className="h-10 w-10 p-0" variant="outline">
+          <Button asChild size="icon" variant="outline">
             <a aria-label="Exit admin" href="/search" title="Exit admin">
               <ArrowLeft className="h-4 w-4" />
             </a>
@@ -1507,7 +1500,6 @@ function AdminPage() {
             </p>
           </div>
           <Button disabled={isUploading} type="button" onClick={openUploadModal}>
-            <ImagePlus className="mr-2 h-4 w-4" />
             {isUploading ? 'Upload in progress' : 'Upload references'}
           </Button>
         </div>
@@ -1536,11 +1528,9 @@ function AdminPage() {
                       variant="outline"
                       onClick={() => requestPhotoDeletion(selectedPhotoIds)}
                     >
-                      <Trash2 className="mr-2 h-4 w-4" />
                       Delete selected ({selectedPhotoIds.length})
                     </Button>
                     <Button type="button" variant="outline" onClick={cancelPhotoSelection}>
-                      <X className="mr-2 h-4 w-4" />
                       Cancel selection
                     </Button>
                   </>
@@ -1550,7 +1540,6 @@ function AdminPage() {
                     variant="outline"
                     onClick={() => setIsSelectionMode(true)}
                   >
-                    <CheckCircle2 className="mr-2 h-4 w-4" />
                     Select
                   </Button>
                 )}
@@ -1646,7 +1635,7 @@ function AdminPage() {
                 </div>
                 <Button
                   aria-label="Close upload"
-                  className="h-10 w-10 shrink-0 rounded-full p-0"
+                  size="icon"
                   disabled={isUploading}
                   type="button"
                   variant="outline"
@@ -1750,7 +1739,6 @@ function AdminPage() {
                     disabled={isUploading || selectedFiles.length === 0}
                     type="submit"
                   >
-                    <Upload className="mr-2 h-4 w-4" />
                     {isUploading
                       ? `Uploading ${selectedFiles.length}...`
                       : selectedFiles.length > 1
@@ -1770,9 +1758,13 @@ function AdminPage() {
           aria-modal="true"
           className="fixed inset-0 z-40 overflow-y-auto bg-black/80 p-4 backdrop-blur-md sm:p-8"
           role="dialog"
+          onClick={closePhotoDetail}
         >
           <div className="flex min-h-full items-center justify-center">
-            <section className="glass-surface w-full max-w-5xl overflow-hidden rounded-3xl">
+            <section
+              className="glass-surface w-full max-w-5xl overflow-hidden rounded-3xl"
+              onClick={(event) => event.stopPropagation()}
+            >
               <header className="flex items-center justify-between gap-4 border-b border-white/10 px-5 py-4 sm:px-6">
                 <div>
                   <p className="text-xs font-medium uppercase tracking-[0.25em] text-[#6BA2DD]">
@@ -1784,7 +1776,7 @@ function AdminPage() {
                 </div>
                 <Button
                   aria-label="Close photo detail"
-                  className="h-10 w-10 shrink-0 rounded-full p-0"
+                  size="icon"
                   disabled={Boolean(savingPhotoId || suggestingPhotoId)}
                   type="button"
                   variant="outline"
@@ -1903,7 +1895,6 @@ function AdminPage() {
                           type="button"
                           onClick={() => void saveKeywords(detailPhoto.id)}
                         >
-                          <Save className="mr-2 h-4 w-4" />
                           {savingPhotoId === detailPhoto.id
                             ? 'Saving...'
                             : 'Save changes'}
@@ -1921,7 +1912,6 @@ function AdminPage() {
                         variant="outline"
                         onClick={() => void suggestKeywords(detailPhoto.id)}
                       >
-                        <Sparkles className="mr-2 h-4 w-4" />
                         {suggestingPhotoId === detailPhoto.id
                           ? 'Suggesting...'
                           : 'Suggest keywords'}
@@ -1933,7 +1923,6 @@ function AdminPage() {
                         variant="outline"
                         onClick={() => requestPhotoDeletion([detailPhoto.id])}
                       >
-                        <Trash2 className="mr-2 h-4 w-4" />
                         Delete photo
                       </Button>
                     </div>
@@ -1982,7 +1971,6 @@ function AdminPage() {
                 type="button"
                 onClick={() => void deletePhotos()}
               >
-                <Trash2 className="mr-2 h-4 w-4" />
                 {isDeleting ? 'Deleting...' : 'Delete permanently'}
               </Button>
             </div>
