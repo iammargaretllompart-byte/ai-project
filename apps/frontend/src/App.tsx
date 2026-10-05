@@ -764,10 +764,13 @@ function SearchPage() {
   return (
     <main className="app-canvas search-canvas relative isolate min-h-screen overflow-hidden py-8 text-white">
       <ReferenceCollage />
-      <nav aria-label="Account" className="page-container relative z-10 flex justify-end">
+      <nav
+        aria-label="Account"
+        className={`page-container relative z-10 flex justify-end ${hasSearched ? 'invisible' : ''}`}
+      >
         <AdminAccess />
       </nav>
-      <div className="pointer-events-none relative z-10 mx-auto flex min-h-[calc(100vh-7.75rem)] w-full items-center justify-center px-6 py-10">
+      <div className={`pointer-events-none relative z-10 mx-auto flex min-h-[calc(100vh-7.75rem)] w-full items-center justify-center px-6 py-10 ${hasSearched ? 'invisible' : ''}`}>
         <section className="glass-surface frosted-surface search-panel pointer-events-auto w-full rounded-3xl p-6 sm:p-10 md:w-[640px] lg:w-[800px] xl:w-[960px] xl:p-12 min-[1920px]:w-[1040px]">
           <p className="text-sm font-medium uppercase tracking-[0.3em] text-[#85B9F1]">
             References Search
@@ -832,7 +835,7 @@ function SearchPage() {
         <section
           aria-label="Search results"
           aria-modal="true"
-          className="app-canvas fixed inset-0 z-50 overflow-y-auto text-white"
+          className={`fixed inset-0 z-50 overflow-y-auto text-white ${isSearching ? '' : 'app-canvas'}`}
           role="dialog"
         >
           <header className="canvas-overlay sticky top-0 z-10 border-b border-white/10 py-4 backdrop-blur-xl">

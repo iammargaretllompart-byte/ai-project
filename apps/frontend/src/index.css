@@ -59,6 +59,13 @@
     background-attachment: fixed;
   }
 
+  .search-canvas {
+    background-image:
+      radial-gradient(ellipse 65% 95% at 8% 95%, rgb(147 34 36 / 15%), transparent 75%),
+      radial-gradient(ellipse 65% 100% at 50% 110%, rgb(var(--accent) / 15%), transparent 75%),
+      radial-gradient(ellipse 60% 90% at 95% 90%, rgb(202 131 0 / 15%), transparent 75%);
+  }
+
   .canvas-overlay {
     background: rgb(var(--canvas) / 78%);
   }
