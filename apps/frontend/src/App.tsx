@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import {
   AlertCircle,
   ArrowLeft,
@@ -50,6 +50,8 @@ type SearchDebug = {
     results: number
   }>
   candidatePhotoCount: number
+  visuallyReviewedPhotoCount?: number
+  visualReviewBatchCount?: number
   selectedPhotoCount: number
   selectionMethod: 'ai'
   timingsMs: {
@@ -131,7 +133,7 @@ function App() {
     page = (
       <main className="app-canvas min-h-screen text-white">
         <section className="mx-auto flex min-h-screen max-w-5xl flex-col items-center justify-center px-6 py-20 text-center">
-          <p className="mb-4 rounded-full border border-[#FF6A38]/30 bg-[#FF6A38]/10 px-4 py-1 text-sm font-medium text-[#ffb39a]">
+          <p className="mb-4 rounded-full border border-[#6BA2DD]/30 bg-[#6BA2DD]/10 px-4 py-1 text-sm font-medium text-[#B4D0EE]">
             Vite + React + TypeScript + Tailwind + shadcn/ui
           </p>
           <h1 className="max-w-3xl text-5xl font-bold tracking-tight sm:text-7xl">
@@ -291,11 +293,11 @@ function UploadActivity() {
       {jobId ? (
         <div
           aria-live="polite"
-          className="fixed left-1/2 top-4 z-[60] w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 rounded-2xl border border-[#FF6A38]/30 bg-neutral-950/90 p-4 text-white shadow-2xl shadow-black/50 backdrop-blur-xl"
+          className="fixed left-1/2 top-4 z-[60] w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 rounded-2xl border border-[#6BA2DD]/30 bg-neutral-950/90 p-4 text-white shadow-2xl shadow-black/50 backdrop-blur-xl"
           role="status"
         >
           <div className="flex items-start gap-3">
-            <LoaderCircle className="mt-0.5 h-5 w-5 shrink-0 animate-spin text-[#FF6A38]" />
+            <LoaderCircle className="mt-0.5 h-5 w-5 shrink-0 animate-spin text-[#6BA2DD]" />
             <div className="min-w-0 flex-1">
               <div className="flex items-center justify-between gap-4">
                 <p className="font-medium">Uploading references</p>
@@ -308,7 +310,7 @@ function UploadActivity() {
               </p>
               <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/10">
                 <div
-                  className="h-full rounded-full bg-[#FF6A38] transition-[width] duration-500"
+                  className="h-full rounded-full bg-[#6BA2DD] transition-[width] duration-500"
                   style={{ width: `${progress}%` }}
                 />
               </div>
@@ -360,7 +362,7 @@ function AdminAccess() {
 }
 
 const keywordChipClassName =
-  'max-w-full truncate rounded-full bg-[#FF6A38]/10 px-2.5 py-1 text-xs font-medium text-[#ffb39a]'
+  'max-w-full truncate rounded-full bg-[#6BA2DD]/10 px-2.5 py-1 text-xs font-medium text-[#B4D0EE]'
 
 function KeywordPreview({ keywords }: { keywords: string[] }) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -469,11 +471,14 @@ function PendingPhotoPreview({
   file: File
   onRemove: () => void
 }) {
-  const [previewUrl] = useState(() => URL.createObjectURL(file))
+  const [previewUrl, setPreviewUrl] = useState<string>()
 
   useEffect(() => {
-    return () => URL.revokeObjectURL(previewUrl)
-  }, [previewUrl])
+    const url = URL.createObjectURL(file)
+    setPreviewUrl(url)
+
+    return () => URL.revokeObjectURL(url)
+  }, [file])
 
   return (
     <li className="flex min-w-0 items-center gap-3 rounded-xl border border-white/10 bg-black/25 p-2">
@@ -507,6 +512,97 @@ const searchPromptTemplates = [
   'Product page with vivid colours',
   'Photography driven sports landing page',
 ]
+
+function ReferenceCollage() {
+  const [photos, setPhotos] = useState<Photo[]>([])
+  const [travel, setTravel] = useState(0)
+  const collageRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const canvas = collageRef.current?.parentElement
+    if (!canvas) return
+
+    let position = 0
+    let frame = 0
+
+    function explore(event: WheelEvent) {
+      if (
+        !(event.target instanceof Element) ||
+        event.target.closest('.search-panel, nav, [role="dialog"]')
+      ) return
+
+      event.preventDefault()
+      const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? window.innerHeight : 1)
+      position += Math.max(-100, Math.min(100, delta))
+      if (!frame) {
+        frame = requestAnimationFrame(() => {
+          setTravel(position)
+          frame = 0
+        })
+      }
+    }
+
+    canvas.addEventListener('wheel', explore, { passive: false })
+    return () => {
+      canvas.removeEventListener('wheel', explore)
+      cancelAnimationFrame(frame)
+    }
+  }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+
+    async function loadPhotos() {
+      try {
+        const response = await fetch(`${apiBaseUrl}/photos`, { signal: controller.signal })
+        if (!response.ok) return
+
+        const library = (await response.json()) as Photo[]
+        setPhotos(library)
+      } catch {
+        // The search page remains usable when the library is unavailable.
+      }
+    }
+
+    void loadPhotos()
+    return () => controller.abort()
+  }, [])
+
+  return (
+    <div aria-hidden="true" className="reference-collage" ref={collageRef}>
+      <div className="reference-collage-grid">
+        {Array.from({ length: Math.min(30, photos.length) }, (_, index) => {
+          const count = Math.min(30, photos.length)
+          const step = Math.floor((travel + index * 16) / 480)
+          const photoIndex = Math.floor(index * photos.length / count) + step
+          const photo = photos[((photoIndex % photos.length) + photos.length) % photos.length]
+          const phase = index * 2.4 + travel / 380
+          const depth = (Math.sin(phase) + 1) / 2
+          const style = {
+            '--tile-scale': 0.88 + depth * 0.14,
+            '--tile-blur': `${(1 - depth) * 2.5}px`,
+            '--tile-opacity': 0.34 + depth * 0.28,
+            '--tile-x': `${Math.cos(phase) * 14}px`,
+            '--tile-y': `${Math.sin(phase * 0.8) * 20}px`,
+            zIndex: Math.round(depth * 10),
+          } as CSSProperties
+
+          return (
+            <div className="reference-tile" key={index} style={style}>
+              <img
+                alt=""
+                decoding="async"
+                draggable={false}
+                key={photo.id}
+                src={`${apiBaseUrl}${photo.url}`}
+              />
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
 
 function SearchPage() {
   const [prompt, setPrompt] = useState('')
@@ -633,13 +729,14 @@ function SearchPage() {
   }
 
   return (
-    <main className="app-canvas min-h-screen px-6 py-8 text-white">
-      <nav aria-label="Account" className="mx-auto flex max-w-6xl justify-end">
+    <main className="app-canvas search-canvas relative isolate min-h-screen overflow-hidden px-6 py-8 text-white">
+      <ReferenceCollage />
+      <nav aria-label="Account" className="relative z-10 mx-auto flex max-w-6xl justify-end">
         <AdminAccess />
       </nav>
-      <div className="mx-auto flex min-h-[calc(100vh-7.75rem)] max-w-6xl items-center">
-        <section className="glass-surface w-full rounded-3xl bg-white/[0.04] p-6 sm:p-10">
-          <p className="text-sm font-medium uppercase tracking-[0.3em] text-[#FF6A38]">
+      <div className="pointer-events-none relative z-10 mx-auto flex min-h-[calc(100vh-7.75rem)] max-w-3xl items-center py-10">
+        <section className="glass-surface search-panel pointer-events-auto w-full rounded-3xl p-6 sm:p-10">
+          <p className="text-sm font-medium uppercase tracking-[0.3em] text-[#6BA2DD]">
             References Search
           </p>
           <h1 className="mt-4 text-3xl font-bold tracking-tight sm:text-4xl xl:text-[2.5rem]">
@@ -655,7 +752,7 @@ function SearchPage() {
             onSubmit={(event) => void searchPhotos(event)}
           >
             <textarea
-              className="min-h-28 rounded-2xl border border-white/15 bg-black/30 px-4 py-3 text-base text-white outline-none ring-[#FF6A38]/40 placeholder:text-neutral-500 focus:ring-2"
+              className="min-h-28 rounded-2xl border border-white/15 bg-black/30 px-4 py-3 text-base text-white outline-none ring-[#6BA2DD]/40 placeholder:text-neutral-500 focus:ring-2"
               placeholder="Describe your project and the style, content, or mood you have in mind"
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
@@ -670,8 +767,8 @@ function SearchPage() {
                     aria-pressed={prompt === template}
                     className={`rounded-full border px-3.5 py-2 text-left text-sm transition-colors ${
                       prompt === template
-                        ? 'border-[#FF6A38]/60 bg-[#FF6A38]/15 text-[#ffb39a]'
-                        : 'border-white/15 bg-white/[0.04] text-neutral-300 hover:border-[#FF6A38]/40 hover:text-white'
+                        ? 'border-[#6BA2DD]/60 bg-[#6BA2DD]/15 text-[#B4D0EE]'
+                        : 'border-white/15 bg-white/[0.04] text-neutral-300 hover:border-[#6BA2DD]/40 hover:text-white'
                     }`}
                     key={template}
                     type="button"
@@ -729,11 +826,11 @@ function SearchPage() {
           {isSearching ? (
             <div className="mx-auto flex min-h-[calc(100vh-73px)] max-w-3xl flex-col items-center justify-center px-6 py-16 text-center">
               <div className="relative flex h-28 w-28 items-center justify-center">
-                <div className="absolute inset-0 animate-ping rounded-full bg-[#FF6A38]/10" />
-                <div className="absolute inset-3 rounded-full border border-[#FF6A38]/20 bg-[#FF6A38]/5" />
-                <LoaderCircle className="relative h-10 w-10 animate-spin text-[#FF6A38]" />
+                <div className="absolute inset-0 animate-ping rounded-full bg-[#6BA2DD]/10" />
+                <div className="absolute inset-3 rounded-full border border-[#6BA2DD]/20 bg-[#6BA2DD]/5" />
+                <LoaderCircle className="relative h-10 w-10 animate-spin text-[#6BA2DD]" />
               </div>
-              <p className="mt-8 text-sm font-medium uppercase tracking-[0.3em] text-[#FF6A38]">
+              <p className="mt-8 text-sm font-medium uppercase tracking-[0.3em] text-[#6BA2DD]">
                 Agent at work
               </p>
               <h2 className="mt-4 text-3xl font-bold tracking-tight sm:text-5xl">
@@ -747,7 +844,7 @@ function SearchPage() {
                   <span
                     aria-label={loadingMessage}
                     className={`h-1.5 rounded-full transition-all duration-500 ${
-                      index === loadingStep ? 'w-10 bg-[#FF6A38]' : 'w-4 bg-neutral-700'
+                      index === loadingStep ? 'w-10 bg-[#6BA2DD]' : 'w-4 bg-neutral-700'
                     }`}
                     key={loadingMessage}
                   />
@@ -782,7 +879,7 @@ function SearchPage() {
                 <>
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                     <div>
-                      <p className="text-sm font-medium uppercase tracking-[0.25em] text-[#FF6A38]">
+                      <p className="text-sm font-medium uppercase tracking-[0.25em] text-[#6BA2DD]">
                         Curated by AI
                       </p>
                       <h2 className="mt-2 text-3xl font-bold tracking-tight sm:text-5xl">
@@ -790,7 +887,7 @@ function SearchPage() {
                       </h2>
                     </div>
                     <p className="text-sm text-neutral-400">
-                      {results.length} selected from {searchDebug?.candidatePhotoCount ?? 0} candidates
+                      {results.length} selected · {searchDebug?.visuallyReviewedPhotoCount ?? 0} visually reviewed
                     </p>
                   </div>
 
@@ -810,8 +907,8 @@ function SearchPage() {
                             {photo.name ?? 'Untitled reference'}
                           </h3>
                           {photo.selectionReason ? (
-                            <div className="rounded-lg border border-[#FF6A38]/20 bg-[#FF6A38]/5 p-3">
-                              <p className="text-xs font-medium uppercase tracking-wider text-[#FF6A38]">
+                            <div className="rounded-lg border border-[#6BA2DD]/20 bg-[#6BA2DD]/5 p-3">
+                              <p className="text-xs font-medium uppercase tracking-wider text-[#6BA2DD]">
                                 Why it was selected
                               </p>
                               <p className="mt-1 text-sm leading-6 text-neutral-300">
@@ -822,7 +919,7 @@ function SearchPage() {
                           <div className="flex flex-wrap gap-2">
                             {photo.keywords.map((keyword) => (
                               <span
-                                className="rounded-full bg-[#FF6A38]/10 px-2.5 py-1 text-xs font-medium text-[#ffb39a]"
+                                className="rounded-full bg-[#6BA2DD]/10 px-2.5 py-1 text-xs font-medium text-[#B4D0EE]"
                                 key={keyword}
                               >
                                 {keyword}
@@ -845,6 +942,11 @@ function SearchPage() {
                       </div>
                       {searchDebug ? (
                         <>
+                          <p>
+                            Retrieved {searchDebug.candidatePhotoCount} candidates · visually reviewed{' '}
+                            {searchDebug.visuallyReviewedPhotoCount ?? 0} images in{' '}
+                            {searchDebug.visualReviewBatchCount ?? 0} comparison batches
+                          </p>
                           <p>
                             Timing: search {(searchDebug.timingsMs.search / 1000).toFixed(1)}s · selection{' '}
                             {(searchDebug.timingsMs.selection / 1000).toFixed(1)}s · total{' '}
@@ -1349,7 +1451,7 @@ function AdminPage() {
             <span aria-hidden="true" className="text-neutral-600">
               /
             </span>
-            <span aria-current="page" className="text-[#FF6A38]">
+            <span aria-current="page" className="text-[#6BA2DD]">
               Library Administrator
             </span>
           </div>
@@ -1434,7 +1536,7 @@ function AdminPage() {
               <article
                 className={`glass-surface relative overflow-hidden rounded-2xl transition-transform hover:-translate-y-0.5 ${
                   selectedPhotoIds.includes(photo.id)
-                    ? 'border-[#FF6A38] ring-1 ring-[#FF6A38]'
+                    ? 'border-[#6BA2DD] ring-1 ring-[#6BA2DD]'
                     : 'border-white/10'
                 }`}
                 key={photo.id}
@@ -1443,7 +1545,7 @@ function AdminPage() {
                   <label className="absolute left-3 top-3 z-10 flex cursor-pointer items-center gap-2 rounded-lg border border-white/10 bg-black/75 px-3 py-2 text-sm text-white shadow-lg backdrop-blur-xl">
                     <input
                       checked={selectedPhotoIds.includes(photo.id)}
-                      className="h-4 w-4 accent-[#FF6A38]"
+                      className="h-4 w-4 accent-[#6BA2DD]"
                       type="checkbox"
                       onChange={() => togglePhotoSelection(photo.id)}
                     />
@@ -1456,7 +1558,7 @@ function AdminPage() {
                       ? `${selectedPhotoIds.includes(photo.id) ? 'Deselect' : 'Select'} ${photo.name ?? 'uploaded photo'}`
                       : `View details for ${photo.name ?? 'uploaded photo'}`
                   }
-                  className="group block w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#FF6A38]"
+                  className="group block w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#6BA2DD]"
                   type="button"
                   onClick={() =>
                     isSelectionMode
@@ -1496,7 +1598,7 @@ function AdminPage() {
             <section className="glass-surface w-full max-w-3xl overflow-hidden rounded-3xl">
               <header className="flex items-center justify-between gap-4 border-b border-white/10 px-5 py-4 sm:px-6">
                 <div>
-                  <p className="text-xs font-medium uppercase tracking-[0.25em] text-[#FF6A38]">
+                  <p className="text-xs font-medium uppercase tracking-[0.25em] text-[#6BA2DD]">
                     Add to library
                   </p>
                   <h2 className="mt-1 text-xl font-semibold" id="upload-modal-title">
@@ -1523,7 +1625,7 @@ function AdminPage() {
                 <div
                   className={`mt-5 rounded-2xl border border-dashed p-8 text-center transition-colors ${
                     isDraggingFiles
-                      ? 'border-[#FF6A38] bg-[#FF6A38]/10'
+                      ? 'border-[#6BA2DD] bg-[#6BA2DD]/10'
                       : 'border-white/20 bg-black/25 hover:border-white/35 hover:bg-white/[0.03]'
                   }`}
                   onDragEnter={(event) => {
@@ -1544,7 +1646,7 @@ function AdminPage() {
                   }}
                   onDrop={dropPhotos}
                 >
-                  <Upload className="mx-auto h-8 w-8 text-[#FF6A38]" />
+                  <Upload className="mx-auto h-8 w-8 text-[#6BA2DD]" />
                   <p className="mt-3 font-medium">
                     {isDraggingFiles
                       ? 'Drop photos here'
@@ -1634,7 +1736,7 @@ function AdminPage() {
             <section className="glass-surface w-full max-w-5xl overflow-hidden rounded-3xl">
               <header className="flex items-center justify-between gap-4 border-b border-white/10 px-5 py-4 sm:px-6">
                 <div>
-                  <p className="text-xs font-medium uppercase tracking-[0.25em] text-[#FF6A38]">
+                  <p className="text-xs font-medium uppercase tracking-[0.25em] text-[#6BA2DD]">
                     Photo detail
                   </p>
                   <h2 className="mt-1 text-xl font-semibold" id="photo-detail-title">
@@ -1722,7 +1824,7 @@ function AdminPage() {
                       Edit keywords
                     </label>
                     <textarea
-                      className="min-h-28 w-full rounded-lg border border-white/15 bg-black/30 px-3 py-2 text-sm text-white outline-none ring-[#FF6A38]/40 placeholder:text-neutral-500 focus:ring-2"
+                      className="min-h-28 w-full rounded-lg border border-white/15 bg-black/30 px-3 py-2 text-sm text-white outline-none ring-[#6BA2DD]/40 placeholder:text-neutral-500 focus:ring-2"
                       id={`keywords-${detailPhoto.id}`}
                       value={editingKeywords[detailPhoto.id] ?? ''}
                       onChange={(event) =>
