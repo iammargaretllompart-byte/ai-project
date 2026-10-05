@@ -136,7 +136,7 @@ function App() {
           <p className="mb-4 rounded-full border border-[#6BA2DD]/30 bg-[#6BA2DD]/10 px-4 py-1 text-sm font-medium text-[#B4D0EE]">
             Vite + React + TypeScript + Tailwind + shadcn/ui
           </p>
-          <h1 className="max-w-3xl text-5xl font-bold tracking-tight sm:text-7xl">
+          <h1 className="headline-display max-w-3xl">
             Build the frontend without fighting the stack.
           </h1>
           <p className="mt-6 max-w-2xl text-lg leading-8 text-neutral-300">
@@ -516,7 +516,19 @@ const searchPromptTemplates = [
 function ReferenceCollage() {
   const [photos, setPhotos] = useState<Photo[]>([])
   const [travel, setTravel] = useState(0)
+  const [changeOrder] = useState(() => {
+    const order = Array.from({ length: 30 }, (_, index) => index)
+    for (let index = order.length - 1; index > 0; index -= 1) {
+      const other = Math.floor(Math.random() * (index + 1))
+      const current = order[index]
+      order[index] = order[other]
+      order[other] = current
+    }
+    return order
+  })
   const collageRef = useRef<HTMLDivElement>(null)
+  const tileCount = Math.min(30, photos.length)
+  const activeChangeOrder = changeOrder.filter((index) => index < tileCount)
 
   useEffect(() => {
     const canvas = collageRef.current?.parentElement
@@ -524,6 +536,30 @@ function ReferenceCollage() {
 
     let position = 0
     let frame = 0
+    let previousTimestamp = 0
+    let previousPaint = 0
+    let paintedPosition = 0
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
+
+    function drift(timestamp: number) {
+      const elapsed = previousTimestamp ? Math.min(timestamp - previousTimestamp, 64) : 0
+      previousTimestamp = timestamp
+
+      if (
+        !document.hidden &&
+        !reducedMotion.matches
+      ) {
+        position += elapsed * 0.02
+      }
+
+      if (timestamp - previousPaint >= 50 && Math.abs(position - paintedPosition) >= 0.1) {
+        setTravel(position)
+        paintedPosition = position
+        previousPaint = timestamp
+      }
+
+      frame = requestAnimationFrame(drift)
+    }
 
     function explore(event: WheelEvent) {
       if (
@@ -534,14 +570,9 @@ function ReferenceCollage() {
       event.preventDefault()
       const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? window.innerHeight : 1)
       position += Math.max(-100, Math.min(100, delta))
-      if (!frame) {
-        frame = requestAnimationFrame(() => {
-          setTravel(position)
-          frame = 0
-        })
-      }
     }
 
+    frame = requestAnimationFrame(drift)
     canvas.addEventListener('wheel', explore, { passive: false })
     return () => {
       canvas.removeEventListener('wheel', explore)
@@ -558,6 +589,12 @@ function ReferenceCollage() {
         if (!response.ok) return
 
         const library = (await response.json()) as Photo[]
+        for (let index = library.length - 1; index > 0; index -= 1) {
+          const other = Math.floor(Math.random() * (index + 1))
+          const current = library[index]
+          library[index] = library[other]
+          library[other] = current
+        }
         setPhotos(library)
       } catch {
         // The search page remains usable when the library is unavailable.
@@ -571,10 +608,12 @@ function ReferenceCollage() {
   return (
     <div aria-hidden="true" className="reference-collage" ref={collageRef}>
       <div className="reference-collage-grid">
-        {Array.from({ length: Math.min(30, photos.length) }, (_, index) => {
-          const count = Math.min(30, photos.length)
-          const step = Math.floor((travel + index * 16) / 480)
-          const photoIndex = Math.floor(index * photos.length / count) + step
+        {Array.from({ length: tileCount }, (_, index) => {
+          const changeRank = activeChangeOrder.indexOf(index)
+          const step = Math.floor((travel + changeRank * (1440 / tileCount)) / 1440)
+          // The shuffled slots occupy a sliding window of distinct library entries.
+          // Each swap advances one end of the window, including when scrolling back.
+          const photoIndex = tileCount - 1 - changeRank + step * tileCount
           const photo = photos[((photoIndex % photos.length) + photos.length) % photos.length]
           const phase = index * 2.4 + travel / 380
           const depth = (Math.sin(phase) + 1) / 2
@@ -739,7 +778,7 @@ function SearchPage() {
           <p className="text-sm font-medium uppercase tracking-[0.3em] text-[#6BA2DD]">
             References Search
           </p>
-          <h1 className="mt-4 text-3xl font-bold tracking-tight sm:text-4xl xl:text-[2.5rem]">
+          <h1 className="headline-h1 mt-4">
             Let's search the best references for your project
           </h1>
           <p className="mt-5 max-w-2xl text-neutral-300">
@@ -833,7 +872,7 @@ function SearchPage() {
               <p className="mt-8 text-sm font-medium uppercase tracking-[0.3em] text-[#6BA2DD]">
                 Agent at work
               </p>
-              <h2 className="mt-4 text-3xl font-bold tracking-tight sm:text-5xl">
+              <h2 className="headline-display mt-4">
                 {loadingMessages[loadingStep]}
               </h2>
               <p className="mt-4 max-w-xl text-neutral-400">
@@ -882,7 +921,7 @@ function SearchPage() {
                       <p className="text-sm font-medium uppercase tracking-[0.25em] text-[#6BA2DD]">
                         Curated by AI
                       </p>
-                      <h2 className="mt-2 text-3xl font-bold tracking-tight sm:text-5xl">
+                      <h2 className="headline-h1 mt-2">
                         Selected references
                       </h2>
                     </div>
@@ -903,7 +942,7 @@ function SearchPage() {
                           src={`${apiBaseUrl}${photo.url}`}
                         />
                         <div className="space-y-4 p-5">
-                          <h3 className="line-clamp-2 font-medium">
+                          <h3 className="headline-h3 line-clamp-2">
                             {photo.name ?? 'Untitled reference'}
                           </h3>
                           {photo.selectionReason ? (
@@ -1459,7 +1498,7 @@ function AdminPage() {
 
         <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h1 className="text-4xl font-bold tracking-tight">
+            <h1 className="headline-h1">
               Your Curated References
             </h1>
             <p className="mt-3 max-w-2xl text-neutral-300">
@@ -1573,7 +1612,7 @@ function AdminPage() {
                   />
                   <div className="space-y-4 p-4">
                     {photo.name ? (
-                      <h3 className="text-lg font-medium leading-6">{photo.name}</h3>
+                      <h3 className="headline-h3">{photo.name}</h3>
                     ) : null}
                     <p className="text-xs text-neutral-500">
                       Uploaded {new Date(photo.createdAt).toLocaleString()}
@@ -1739,7 +1778,7 @@ function AdminPage() {
                   <p className="text-xs font-medium uppercase tracking-[0.25em] text-[#6BA2DD]">
                     Photo detail
                   </p>
-                  <h2 className="mt-1 text-xl font-semibold" id="photo-detail-title">
+                  <h2 className="headline-h3 mt-1" id="photo-detail-title">
                     {detailPhoto.name ?? 'Untitled photo'}
                   </h2>
                 </div>
