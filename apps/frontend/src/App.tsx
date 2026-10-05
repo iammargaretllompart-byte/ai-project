@@ -132,7 +132,7 @@ function App() {
   } else {
     page = (
       <main className="app-canvas min-h-screen text-white">
-        <section className="mx-auto flex min-h-screen max-w-5xl flex-col items-center justify-center px-6 py-20 text-center">
+        <section className="page-container flex min-h-screen flex-col items-center justify-center py-20 text-center">
           <p className="mb-4 rounded-full border border-[#6BA2DD]/30 bg-[#6BA2DD]/10 px-4 py-1 text-sm font-medium text-[#B4D0EE]">
             Vite + React + TypeScript + Tailwind + shadcn/ui
           </p>
@@ -729,12 +729,12 @@ function SearchPage() {
   }
 
   return (
-    <main className="app-canvas search-canvas relative isolate min-h-screen overflow-hidden px-6 py-8 text-white">
+    <main className="app-canvas search-canvas relative isolate min-h-screen overflow-hidden py-8 text-white">
       <ReferenceCollage />
-      <nav aria-label="Account" className="relative z-10 mx-auto flex max-w-6xl justify-end">
+      <nav aria-label="Account" className="page-container relative z-10 flex justify-end">
         <AdminAccess />
       </nav>
-      <div className="pointer-events-none relative z-10 mx-auto flex min-h-[calc(100vh-7.75rem)] max-w-3xl items-center py-10">
+      <div className="pointer-events-none relative z-10 mx-auto flex min-h-[calc(100vh-7.75rem)] max-w-3xl items-center px-6 py-10">
         <section className="glass-surface search-panel pointer-events-auto w-full rounded-3xl p-6 sm:p-10">
           <p className="text-sm font-medium uppercase tracking-[0.3em] text-[#6BA2DD]">
             References Search
@@ -803,8 +803,8 @@ function SearchPage() {
           className="app-canvas fixed inset-0 z-50 overflow-y-auto text-white"
           role="dialog"
         >
-          <header className="canvas-overlay sticky top-0 z-10 border-b border-white/10 px-5 py-4 backdrop-blur-xl sm:px-8">
-            <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
+          <header className="canvas-overlay sticky top-0 z-10 border-b border-white/10 py-4 backdrop-blur-xl">
+            <div className="page-container flex items-center justify-between gap-4">
               <div className="min-w-0 text-left">
                 <p className="text-xs font-medium uppercase tracking-[0.25em] text-white">
                   Your Search
@@ -852,7 +852,7 @@ function SearchPage() {
               </div>
             </div>
           ) : (
-            <div className="mx-auto max-w-7xl px-5 py-10 sm:px-8">
+            <div className="page-container py-10">
               {message ? (
                 <div className="mx-auto max-w-xl rounded-2xl border border-rose-400/20 bg-rose-400/5 p-8 text-center">
                   <h2 className="text-2xl font-semibold">Search could not be completed</h2>
@@ -1433,8 +1433,8 @@ function AdminPage() {
     : undefined
 
   return (
-    <main className="app-canvas min-h-screen px-6 py-8 text-white">
-      <div className="mx-auto max-w-6xl">
+    <main className="app-canvas min-h-screen py-8 text-white">
+      <div className="page-container">
         <nav
           aria-label="Breadcrumb"
           className="mb-10 flex flex-wrap items-center gap-4 border-b border-white/10 pb-5"

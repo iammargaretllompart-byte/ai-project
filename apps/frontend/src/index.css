@@ -21,6 +21,10 @@
 }
 
 @layer components {
+  .page-container {
+    @apply mx-auto w-full max-w-[1920px] px-6 lg:px-16;
+  }
+
   .app-canvas {
     background-color: rgb(var(--canvas));
     background-image:
