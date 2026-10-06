@@ -28,6 +28,14 @@
 }
 
 @layer components {
+  .notification-toast {
+    animation: notification-enter 220ms ease-out both;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .notification-toast { animation: none; }
+  }
+
   .headline-display {
     @apply text-5xl tracking-tight sm:text-7xl;
     font-family: var(--font-heading);
@@ -172,6 +180,11 @@
 @keyframes reference-drift {
   from { transform: translateY(-5px); }
   to { transform: translateY(5px); }
+}
+
+@keyframes notification-enter {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes collage-reveal {

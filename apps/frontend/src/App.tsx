@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import {
   AlertCircle,
   ArrowLeft,
@@ -16,6 +16,7 @@ const activeUploadJobKey = 'visual-library-active-upload-job'
 const uploadStartedEvent = 'visual-library-upload-started'
 const uploadCompletedEvent = 'visual-library-upload-completed'
 const uploadFailedEvent = 'visual-library-upload-failed'
+const notificationEvent = 'visual-library-notification'
 
 type Photo = {
   id: string
@@ -70,9 +71,16 @@ type UploadJob = {
   }>
 }
 
-type UploadToast = {
+type Notification = {
+  id: string
   kind: 'success' | 'error'
   message: string
+}
+
+function notify(kind: Notification['kind'], message: string) {
+  window.dispatchEvent(new CustomEvent<Notification>(notificationEvent, {
+    detail: { id: crypto.randomUUID(), kind, message },
+  }))
 }
 
 let uploadAudioContext: AudioContext | null = null
@@ -89,7 +97,7 @@ function unlockUploadToastSounds() {
   }
 }
 
-function playUploadToastSound(kind: UploadToast['kind']) {
+function playUploadToastSound(kind: Notification['kind']) {
   const audioContext = getUploadAudioContext()
 
   void audioContext.resume().then(() => {
@@ -153,16 +161,76 @@ function App() {
 
   return (
     <>
+      <Notifications />
       <UploadActivity />
       {page}
     </>
   )
 }
 
+function Notifications() {
+  const [notifications, setNotifications] = useState<Notification[]>([])
+  const dismiss = useCallback((id: string) => {
+    setNotifications((current) => current.filter((notification) => notification.id !== id))
+  }, [])
+
+  useEffect(() => {
+    function receive(event: Event) {
+      const notification = (event as CustomEvent<Notification>).detail
+      setNotifications((current) => [...current, notification].slice(-4))
+    }
+
+    window.addEventListener(notificationEvent, receive)
+    return () => window.removeEventListener(notificationEvent, receive)
+  }, [])
+
+  return (
+    <div aria-label="Notifications" className="pointer-events-none fixed bottom-6 left-6 right-6 z-[70] mx-auto flex max-w-xl flex-col gap-3">
+      {notifications.map((notification) => (
+        <NotificationToast key={notification.id} notification={notification} onDismiss={dismiss} />
+      ))}
+    </div>
+  )
+}
+
+function NotificationToast({ notification, onDismiss }: {
+  notification: Notification
+  onDismiss: (id: string) => void
+}) {
+  useEffect(() => {
+    const timeout = window.setTimeout(() => onDismiss(notification.id), 7000)
+    return () => window.clearTimeout(timeout)
+  }, [notification.id, onDismiss])
+
+  const isError = notification.kind === 'error'
+
+  return (
+    <div
+      aria-live={isError ? 'assertive' : 'polite'}
+      className={`notification-toast pointer-events-auto flex items-start gap-3 rounded-md border p-4 shadow-lg shadow-black/20 backdrop-blur-md ${
+        isError
+          ? 'border-red-400/40 bg-red-500/[0.18] text-red-200'
+          : 'border-white/15 bg-white/[0.12] text-neutral-100'
+      }`}
+      role={isError ? 'alert' : 'status'}
+    >
+      {isError ? <AlertCircle aria-hidden="true" className="h-5 w-5 shrink-0" /> : <CheckCircle2 aria-hidden="true" className="h-5 w-5 shrink-0" />}
+      <p className="min-w-0 flex-1 text-sm leading-5">{notification.message}</p>
+      <button
+        aria-label="Dismiss notification"
+        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md opacity-70 transition-opacity hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current"
+        type="button"
+        onClick={() => onDismiss(notification.id)}
+      >
+        <X aria-hidden="true" className="h-4 w-4" />
+      </button>
+    </div>
+  )
+}
+
 function UploadActivity() {
   const [jobId, setJobId] = useState(() => localStorage.getItem(activeUploadJobKey))
   const [job, setJob] = useState<UploadJob | null>(null)
-  const [toast, setToast] = useState<UploadToast | null>(null)
 
   useEffect(() => {
     function uploadStarted(event: Event) {
@@ -177,7 +245,6 @@ function UploadActivity() {
         uploadedPhotoIds: [],
         errors: [],
       })
-      setToast(null)
     }
 
     function uploadFailed(event: Event) {
@@ -185,10 +252,7 @@ function UploadActivity() {
       setJobId(null)
       setJob(null)
       playUploadToastSound('error')
-      setToast({
-        kind: 'error',
-        message: (event as CustomEvent<string>).detail,
-      })
+      notify('error', (event as CustomEvent<string>).detail)
     }
 
     window.addEventListener(uploadStartedEvent, uploadStarted)
@@ -233,17 +297,11 @@ function UploadActivity() {
 
           if (nextJob.errors.length === 0) {
             playUploadToastSound('success')
-            setToast({
-              kind: 'success',
-              message: `${nextJob.succeeded} ${nextJob.succeeded === 1 ? 'reference' : 'references'} uploaded successfully.`,
-            })
+            notify('success', `${nextJob.succeeded} ${nextJob.succeeded === 1 ? 'reference' : 'references'} uploaded successfully.`)
           } else {
             const firstError = nextJob.errors[0]
             playUploadToastSound('error')
-            setToast({
-              kind: 'error',
-              message: `${nextJob.succeeded} uploaded, ${nextJob.errors.length} failed. ${firstError.filename}: ${firstError.message}`,
-            })
+            notify('error', `${nextJob.succeeded} uploaded, ${nextJob.errors.length} failed. ${firstError.filename}: ${firstError.message}`)
           }
         }
       } catch (error) {
@@ -255,11 +313,7 @@ function UploadActivity() {
         setJobId(null)
         setJob(null)
         playUploadToastSound('error')
-        setToast({
-          kind: 'error',
-          message:
-            error instanceof Error ? error.message : 'Could not track the upload.',
-        })
+        notify('error', error instanceof Error ? error.message : 'Could not track the upload.')
       }
     }
 
@@ -270,15 +324,6 @@ function UploadActivity() {
       window.clearInterval(interval)
     }
   }, [jobId])
-
-  useEffect(() => {
-    if (!toast) {
-      return
-    }
-
-    const timeout = window.setTimeout(() => setToast(null), 7000)
-    return () => window.clearTimeout(timeout)
-  }, [toast])
 
   const progress = job ? Math.round((job.processed / job.total) * 100) : 0
 
@@ -313,32 +358,6 @@ function UploadActivity() {
         </div>
       ) : null}
 
-      {toast ? (
-        <div
-          aria-live="assertive"
-          className={`fixed bottom-5 right-5 z-[70] flex max-w-md items-start gap-3 rounded-2xl border p-4 text-white shadow-2xl shadow-black/50 backdrop-blur-xl ${
-            toast.kind === 'success'
-              ? 'border-emerald-400/30 bg-emerald-950/90'
-              : 'border-red-400/30 bg-red-950/90'
-          }`}
-          role="alert"
-        >
-          {toast.kind === 'success' ? (
-            <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-300" />
-          ) : (
-            <AlertCircle className="h-5 w-5 shrink-0 text-red-300" />
-          )}
-          <p className="text-sm leading-5">{toast.message}</p>
-          <button
-            aria-label="Dismiss notification"
-            className="ml-2 text-neutral-400 transition-colors hover:text-white"
-            type="button"
-            onClick={() => setToast(null)}
-          >
-            Dismiss
-          </button>
-        </div>
-      ) : null}
     </>
   )
 }
@@ -683,7 +702,8 @@ function SearchPage() {
     event.preventDefault()
 
     if (!prompt.trim()) {
-      setMessage('Type a prompt before searching.')
+      notify('error', 'Type a prompt before searching.')
+      setMessage('')
       setResults([])
       setKeywordsUsed([])
       setSearchDebug(null)
@@ -732,11 +752,11 @@ function SearchPage() {
         return
       }
 
-      setMessage(
-        error instanceof Error
-          ? error.message
-          : 'Could not complete the AI search.',
-      )
+      const errorMessage = error instanceof Error
+        ? error.message
+        : 'Could not complete the AI search.'
+      setMessage(errorMessage)
+      notify('error', errorMessage)
       setResults([])
       setKeywordsUsed([])
       setSearchDebug(null)
@@ -825,9 +845,6 @@ function SearchPage() {
               {isSearching ? 'Searching...' : 'Search references'}
             </Button>
           </form>
-          {message && !hasSearched ? (
-            <p className="mt-4 text-sm text-rose-300">{message}</p>
-          ) : null}
         </section>
       </div>
 
@@ -1024,11 +1041,13 @@ function AdminPage() {
   const [savingPhotoId, setSavingPhotoId] = useState<string | null>(null)
   const [suggestingPhotoId, setSuggestingPhotoId] = useState<string | null>(null)
   const [detailPhotoId, setDetailPhotoId] = useState<string | null>(null)
+  const [isConfirmingKeywordExit, setIsConfirmingKeywordExit] = useState(false)
+  const detailModalRef = useRef<HTMLDivElement>(null)
+  const detailCloseButtonRef = useRef<HTMLButtonElement>(null)
   const [selectedPhotoIds, setSelectedPhotoIds] = useState<string[]>([])
   const [isSelectionMode, setIsSelectionMode] = useState(false)
   const [photosPendingDelete, setPhotosPendingDelete] = useState<Photo[] | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
-  const [message, setMessage] = useState('')
 
   useEffect(() => {
     void loadPhotos()
@@ -1068,6 +1087,15 @@ function AdminPage() {
   }, [photosPendingDelete, isDeleting])
 
   useEffect(() => {
+    if (detailModalRef.current) {
+      detailModalRef.current.inert = isConfirmingKeywordExit
+    }
+    if (!isConfirmingKeywordExit && detailPhotoId) {
+      detailCloseButtonRef.current?.focus()
+    }
+  }, [isConfirmingKeywordExit, detailPhotoId])
+
+  useEffect(() => {
     if (!detailPhotoId) {
       return
     }
@@ -1082,7 +1110,11 @@ function AdminPage() {
         !savingPhotoId &&
         !suggestingPhotoId
       ) {
-        setDetailPhotoId(null)
+        if (isConfirmingKeywordExit) {
+          setIsConfirmingKeywordExit(false)
+        } else {
+          closePhotoDetail()
+        }
       }
     }
 
@@ -1091,7 +1123,7 @@ function AdminPage() {
       document.body.style.overflow = previousOverflow
       window.removeEventListener('keydown', closeOnEscape)
     }
-  }, [detailPhotoId, photosPendingDelete, savingPhotoId, suggestingPhotoId])
+  }, [detailPhotoId, photosPendingDelete, savingPhotoId, suggestingPhotoId, isConfirmingKeywordExit, editingKeywords, photos])
 
   useEffect(() => {
     if (!isUploadModalOpen) {
@@ -1105,7 +1137,6 @@ function AdminPage() {
       if (event.key === 'Escape' && !isUploading) {
         setSelectedFiles([])
         setIsDraggingFiles(false)
-        setMessage('')
         setIsUploadModalOpen(false)
       }
     }
@@ -1119,7 +1150,6 @@ function AdminPage() {
 
   async function loadPhotos() {
     setIsLoading(true)
-    setMessage('')
 
     try {
       const response = await fetch(`${apiBaseUrl}/photos`)
@@ -1139,7 +1169,7 @@ function AdminPage() {
         ),
       )
     } catch {
-      setMessage('Could not load photos. Make sure the backend is running.')
+      notify('error', 'Could not load photos. Make sure the backend is running.')
     } finally {
       setIsLoading(false)
     }
@@ -1149,14 +1179,13 @@ function AdminPage() {
     event.preventDefault()
 
     if (selectedFiles.length === 0) {
-      setMessage('Choose at least one photo before uploading.')
+      notify('error', 'Choose at least one photo before uploading.')
       return
     }
 
     unlockUploadToastSounds()
     const filesToUpload = selectedFiles
     const jobId = crypto.randomUUID()
-    setMessage('')
 
     const formData = new FormData()
     formData.append('jobId', jobId)
@@ -1245,18 +1274,15 @@ function AdminPage() {
     const availableSlots = Math.max(0, 20 - selectedFiles.length)
 
     if (imageFiles.length !== files.length) {
-      setMessage('Only image files can be added to the upload queue.')
+      notify('error', 'Only image files can be added to the upload queue.')
     } else if (additions.length > availableSlots) {
-      setMessage('You can upload up to 20 photos at a time.')
-    } else {
-      setMessage('')
+      notify('error', 'You can upload up to 20 photos at a time.')
     }
 
     setSelectedFiles([...selectedFiles, ...additions.slice(0, availableSlots)])
   }
 
   function openUploadModal() {
-    setMessage('')
     setSelectedFiles([])
     setIsDraggingFiles(false)
     setIsUploadModalOpen(true)
@@ -1269,7 +1295,6 @@ function AdminPage() {
 
     setSelectedFiles([])
     setIsDraggingFiles(false)
-    setMessage('')
     setIsUploadModalOpen(false)
   }
 
@@ -1288,7 +1313,6 @@ function AdminPage() {
 
   async function saveKeywords(photoId: string) {
     setSavingPhotoId(photoId)
-    setMessage('')
 
     try {
       const response = await fetch(`${apiBaseUrl}/photos/${photoId}/keywords`, {
@@ -1315,9 +1339,11 @@ function AdminPage() {
         ...current,
         [photoId]: undefined,
       }))
-      setMessage('Keywords saved.')
+      notify('success', 'Keywords saved.')
+      return true
     } catch {
-      setMessage('Could not save keywords. Please try again.')
+      notify('error', 'Could not save keywords. Please try again.')
+      return false
     } finally {
       setSavingPhotoId(null)
     }
@@ -1325,7 +1351,6 @@ function AdminPage() {
 
   async function suggestKeywords(photoId: string) {
     setSuggestingPhotoId(photoId)
-    setMessage('')
 
     try {
       const response = await fetch(`${apiBaseUrl}/photos/${photoId}/suggest-keywords`, {
@@ -1352,8 +1377,11 @@ function AdminPage() {
         ...current,
         [photoId]: addedKeywords,
       }))
+      notify('success', addedKeywords.length > 0
+        ? `${addedKeywords.length} suggested ${addedKeywords.length === 1 ? 'keyword has' : 'keywords have'} been added to the edit box.`
+        : 'The current edit box already contains the suggested keywords.')
     } catch {
-      setMessage('Could not suggest keywords. Please try again.')
+      notify('error', 'Could not suggest keywords. Please try again.')
     } finally {
       setSuggestingPhotoId(null)
     }
@@ -1373,7 +1401,7 @@ function AdminPage() {
   }
 
   function openPhotoDetail(photo: Photo) {
-    setMessage('')
+    setIsConfirmingKeywordExit(false)
     setEditingKeywords((current) => ({
       ...current,
       [photo.id]: photo.keywords.join(', '),
@@ -1390,6 +1418,29 @@ function AdminPage() {
       return
     }
 
+    const photo = photos.find((item) => item.id === detailPhotoId)
+    if (photo && (editingKeywords[photo.id] ?? '') !== photo.keywords.join(', ')) {
+      setIsConfirmingKeywordExit(true)
+      return
+    }
+
+    setDetailPhotoId(null)
+  }
+
+  async function saveKeywordsAndExit() {
+    if (!detailPhotoId || savingPhotoId || suggestingPhotoId) return
+
+    if (await saveKeywords(detailPhotoId)) {
+      setIsConfirmingKeywordExit(false)
+      setDetailPhotoId(null)
+    }
+  }
+
+  function discardKeywordsAndExit() {
+    if (!detailPhoto || savingPhotoId || suggestingPhotoId) return
+
+    cancelKeywordChanges(detailPhoto)
+    setIsConfirmingKeywordExit(false)
     setDetailPhotoId(null)
   }
 
@@ -1402,7 +1453,6 @@ function AdminPage() {
       ...current,
       [photo.id]: undefined,
     }))
-    setMessage('')
   }
 
   function requestPhotoDeletion(photoIds: string[]) {
@@ -1416,7 +1466,6 @@ function AdminPage() {
 
     const ids = photosPendingDelete.map((photo) => photo.id)
     setIsDeleting(true)
-    setMessage('')
 
     try {
       const response = await fetch(`${apiBaseUrl}/photos`, {
@@ -1449,11 +1498,11 @@ function AdminPage() {
         current && deletedIds.has(current) ? null : current,
       )
       setPhotosPendingDelete(null)
-      setMessage(
+      notify('success',
         `${data.deletedIds.length} ${data.deletedIds.length === 1 ? 'photo' : 'photos'} deleted.`,
       )
     } catch {
-      setMessage('Could not delete the selected photos. Please try again.')
+      notify('error', 'Could not delete the selected photos. Please try again.')
     } finally {
       setIsDeleting(false)
     }
@@ -1506,12 +1555,6 @@ function AdminPage() {
             {isUploading ? 'Upload in progress' : 'Upload references'}
           </Button>
         </div>
-
-        {message ? (
-          <p className="glass-surface mt-4 rounded-lg px-4 py-3 text-sm text-neutral-200">
-            {message}
-          </p>
-        ) : null}
 
         <section className="mt-8">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1702,12 +1745,6 @@ function AdminPage() {
                   </label>
                 </div>
 
-                {message ? (
-                  <p className="mt-4 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-neutral-300">
-                    {message}
-                  </p>
-                ) : null}
-
                 {selectedFiles.length > 0 ? (
                   <div className="mt-5">
                     <div className="flex items-center justify-between gap-4">
@@ -1759,6 +1796,8 @@ function AdminPage() {
         <div
           aria-labelledby="photo-detail-title"
           aria-modal="true"
+          aria-hidden={isConfirmingKeywordExit || undefined}
+          ref={detailModalRef}
           className="fixed inset-0 z-40 overflow-y-auto bg-black/50 p-4 backdrop-blur-[6px] sm:p-8"
           role="dialog"
           onClick={closePhotoDetail}
@@ -1779,6 +1818,7 @@ function AdminPage() {
                 </div>
                 <Button
                   aria-label="Close photo detail"
+                  ref={detailCloseButtonRef}
                   size="icon"
                   disabled={Boolean(savingPhotoId || suggestingPhotoId)}
                   type="button"
@@ -1844,11 +1884,6 @@ function AdminPage() {
                     </div>
                   ) : null}
 
-                  {message ? (
-                    <p className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-neutral-300">
-                      {message}
-                    </p>
-                  ) : null}
 
                   <div className="space-y-2 border-t border-white/10 pt-5">
                     <label
@@ -1868,13 +1903,6 @@ function AdminPage() {
                         }))
                       }
                     />
-                    {detailSuggestedKeywords !== undefined ? (
-                      <p className="rounded-lg border border-[#76BCDF]/20 bg-[#76BCDF]/[0.06] px-3 py-2 text-sm text-[#b9e2f6]">
-                        {detailSuggestedKeywords.length > 0
-                          ? `${detailSuggestedKeywords.length} suggested ${detailSuggestedKeywords.length === 1 ? 'keyword has' : 'keywords have'} been added to the edit box.`
-                          : 'The current edit box already contains the suggested keywords.'}
-                      </p>
-                    ) : null}
                     {hasKeywordChanges ? (
                       <div className="grid gap-2 sm:grid-cols-2">
                         <Button
@@ -1934,6 +1962,62 @@ function AdminPage() {
               </div>
             </section>
           </div>
+        </div>
+      ) : null}
+
+      {isConfirmingKeywordExit && detailPhoto ? (
+        <div
+          aria-labelledby="unsaved-keywords-title"
+          aria-describedby="unsaved-keywords-description"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[6px]"
+          role="alertdialog"
+          onKeyDown={(event) => {
+            if (event.key !== 'Tab') return
+            const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'))
+            const first = buttons[0]
+            const last = buttons[buttons.length - 1]
+            if (event.shiftKey && document.activeElement === first) {
+              event.preventDefault()
+              last?.focus()
+            } else if (!event.shiftKey && document.activeElement === last) {
+              event.preventDefault()
+              first?.focus()
+            }
+          }}
+        >
+          <section className="glass-surface frosted-surface w-full max-w-xl rounded-2xl p-6">
+            <header className="flex items-center justify-between gap-4">
+              <h2 className="headline-h3" id="unsaved-keywords-title">Unsaved keyword changes</h2>
+              <Button
+                aria-label="Keep editing"
+                autoFocus
+                disabled={Boolean(savingPhotoId)}
+                size="icon"
+                type="button"
+                variant="outline"
+                onClick={() => setIsConfirmingKeywordExit(false)}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </header>
+            <p className="mt-3 leading-6 text-neutral-300" id="unsaved-keywords-description">
+              You have pending changes to this photo's keywords. Would you like to save them before exiting, or exit and discard your changes?
+            </p>
+            <div className="mt-6 flex flex-wrap justify-end gap-3">
+              <Button
+                disabled={Boolean(savingPhotoId)}
+                type="button"
+                variant="outline"
+                onClick={discardKeywordsAndExit}
+              >
+                Exit without saving
+              </Button>
+              <Button disabled={Boolean(savingPhotoId)} type="button" onClick={() => void saveKeywordsAndExit()}>
+                {savingPhotoId ? 'Saving...' : 'Save and exit'}
+              </Button>
+            </div>
+          </section>
         </div>
       ) : null}
 
