@@ -520,9 +520,9 @@ function PendingPhotoPreview({
 }
 
 const searchPromptTemplates = [
-  'Modern web design portfolio with colourful minimal style',
-  'Warm editorial brand identity with natural textures',
-  'Product page with vivid colours',
+  'Colourful photography driven editorial landing page',
+  'Health statistics dark mode mobile app',
+  'Warm editorial identity with natural textures and fashion photography',
   'Photography driven sports landing page',
 ]
 
