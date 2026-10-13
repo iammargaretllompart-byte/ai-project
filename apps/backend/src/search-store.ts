@@ -131,6 +131,10 @@ export class SearchStore {
     return row ? JSON.parse(row.snapshot_json) as SavedSearch : null
   }
 
+  has(id: string): boolean {
+    return Boolean(this.database.prepare('SELECT 1 FROM searches WHERE id = ?').get(id))
+  }
+
   list(limit = 30, offset = 0): { searches: SearchSummary[]; total: number } {
     const rows = this.database.prepare(`
       SELECT snapshot_json FROM searches ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
@@ -147,6 +151,35 @@ export class SearchStore {
     })
     const total = Number(this.database.prepare('SELECT COUNT(*) AS count FROM searches').get()!.count)
     return { searches, total }
+  }
+
+  async delete(id: string): Promise<boolean> {
+    return (await this.deleteMany([id])).length > 0
+  }
+
+  async deleteMany(ids: string[]): Promise<string[]> {
+    const deletedIds: string[] = []
+    this.database.exec('BEGIN IMMEDIATE')
+    try {
+      const remove = this.database.prepare('DELETE FROM searches WHERE id = ?')
+      for (const id of new Set(ids)) {
+        if (remove.run(id).changes > 0) deletedIds.push(id)
+      }
+      this.database.exec('COMMIT')
+    } catch (error) {
+      this.database.exec('ROLLBACK')
+      throw error
+    }
+
+    await Promise.all(deletedIds.map(async (id) => {
+      try {
+        await fs.rm(path.join(this.snapshotsDir, id), { recursive: true, force: true })
+      } catch (error) {
+        // Records are already removed; startup cleanup retries leftover files.
+        console.warn('Could not remove deleted search snapshots', error)
+      }
+    }))
+    return deletedIds
   }
 
   close() {

@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Moodboard format comparison · Preview</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@300;400;500&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+    <style>
+      * { box-sizing: border-box; }
+      body { margin: 0; color: #f5f5f5; font: 14px/1.6 'DM Sans', sans-serif; background: #090909; }
+      body::before { content: ''; position: fixed; inset: 0; z-index: -1; background: radial-gradient(ellipse at 0 85%, #93222435, transparent 65%), radial-gradient(ellipse at 50% 110%, #85b9f12b, transparent 65%), radial-gradient(ellipse at 100% 90%, #ca830029, transparent 65%); }
+      main { max-width: 1920px; margin: auto; padding: 40px 64px 80px; }
+      h1, h2, h3, h4, p { margin: 0; }
+      h1, h2, h3, h4 { font-family: 'Crimson Pro', serif; font-weight: 300; line-height: 1.1; }
+      h1 { font-size: 48px; margin: 14px 0; }
+      .eyebrow { color: #85b9f1; font-size: 11px; font-weight: 500; letter-spacing: .2em; text-transform: uppercase; }
+      .intro { color: #aaa; max-width: 750px; }
+      .brief { margin-top: 24px; padding: 16px 20px; border: 1px solid #ffffff1f; border-radius: 10px; background: #ffffff05; color: #ccc; }
+      .brief span { color: #888; margin-right: 8px; }
+      .comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px; margin-top: 32px; }
+      .format-label { display: flex; gap: 12px; align-items: center; margin-bottom: 14px; }
+      .number { display: grid; place-items: center; width: 30px; height: 30px; border: 1px solid #85b9f14d; border-radius: 8px; color: #85b9f1; }
+      .format-label h2 { font-family: 'DM Sans', sans-serif; font-size: 15px; font-weight: 500; }
+      .format-label p { color: #999; font-size: 12px; }
+      .board { padding: 26px; border: 1px solid #ffffff26; border-radius: 20px; background: #0003; backdrop-filter: blur(6px); box-shadow: 0 12px 32px #0003; }
+      .direction { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+      .badge { padding: 4px 10px; color: #c2dcf8; border: 1px solid #85b9f133; border-radius: 30px; background: #85b9f10d; font-size: 11px; }
+      .board h3 { font-size: 38px; margin: 12px 0; }
+      .description { color: #bbb; font-size: 13px; line-height: 1.7; }
+      .images { display: grid; grid-template-columns: 1.2fr 1fr; grid-template-rows: 130px 130px; gap: 8px; margin-top: 22px; }
+      .image { overflow: hidden; border-radius: 10px; background: linear-gradient(135deg, #7b6247, #2f3e31); }
+      .image:first-child { grid-row: span 2; }
+      .image img { width: 100%; height: 100%; display: block; object-fit: cover; }
+      .section-label { margin: 24px 0 10px; color: #999; font-size: 10px; letter-spacing: .17em; text-transform: uppercase; }
+      .palette { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+      .swatch { height: 48px; border-radius: 7px; border: 1px solid #ffffff12; }
+      .colour { margin-top: 7px; color: #aaa; font-size: 10px; }
+      .colour b { display: block; color: #ddd; font-weight: 400; }
+      .type { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 16px; border: 1px solid #ffffff15; border-radius: 10px; }
+      .type .serif { font: 300 36px/1.1 'Crimson Pro', serif; }
+      .type .sans { font-size: 26px; line-height: 1.5; }
+      .type .name { font-size: 11px; color: #aaa; margin-top: 7px; }
+      .rationale { margin-top: 20px; padding-top: 16px; border-top: 1px solid #ffffff12; color: #aaa; font-size: 12px; }
+      .rationale strong { color: #ddd; font-weight: 500; }
+      .design-sample { overflow: hidden; padding: 24px; border-radius: 12px; background: #eee8db; color: #303a30; }
+      .sample-top { display: flex; justify-content: space-between; align-items: center; padding-bottom: 14px; border-bottom: 1px solid #303a3026; font-size: 10px; }
+      .sample-top b { letter-spacing: .1em; font-weight: 500; }
+      .sample-content { display: grid; grid-template-columns: 1.2fr .8fr; gap: 22px; align-items: center; padding-top: 24px; }
+      .sample-label { color: #8e533d; font-size: 9px; letter-spacing: .18em; text-transform: uppercase; }
+      .sample-content h4 { font-size: 40px; margin: 10px 0 12px; }
+      .sample-content p { font-size: 11px; line-height: 1.7; }
+      .sample-action { display: inline-block; margin-top: 18px; padding: 9px 13px; background: #8e533d; color: #fff8f0; border-radius: 5px; font-size: 10px; }
+      .sample-photo { height: 230px; border-radius: 80px 80px 8px 8px; overflow: hidden; background: #a49779; }
+      .sample-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+      .annotation { margin-top: 12px; color: #999; font-size: 11px; }
+      .format-note { padding: 16px 4px; color: #aaa; font-size: 12px; }
+      .footer { margin-top: 28px; color: #888; font-size: 12px; }
+      @media (max-width: 1100px) { main { padding: 32px 24px 60px; } .comparison { gap: 18px; } .board { padding: 20px; } .sample-content { grid-template-columns: 1fr; } .sample-photo { display: none; } }
+      @media (max-width: 767px) { h1 { font-size: 36px; } .comparison { grid-template-columns: 1fr; gap: 28px; } .board h3 { font-size: 34px; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">Format exploration · UI preview</p>
+      <h1>Two ways to present a direction</h1>
+      <p class="intro">The same example moodboard in both formats. Compare how well you can judge the visual direction, typography, and colours with and without a design sample.</p>
+      <p class="brief"><span>Example brief</span>Warm editorial identity with natural textures and fashion photography</p>
+      <div class="comparison">
+        <section>
+          <div class="format-label"><span class="number">01</span><div><h2>Visual moodboard</h2><p>References, typography, palette, and rationale.</p></div></div>
+          <article class="board" id="visual-board"></article>
+          <p class="format-note">A compact overview of the ingredients behind the direction.</p>
+        </section>
+        <section>
+          <div class="format-label"><span class="number">02</span><div><h2>Moodboard + design sample</h2><p>The same ingredients, shown working together.</p></div></div>
+          <article class="board" id="sample-board"></article>
+          <p class="format-note">Adds a small composition to help judge the combination before moving into design.</p>
+        </section>
+      </div>
+      <p class="footer">Illustrative preview of one Grounded direction. The planned feature would provide Grounded, Exploratory, and Bold options. Copy, fonts, and palettes here are examples, not AI-generated recommendations.</p>
+    </main>
+    <template id="board-content">
+      <div class="direction"><p class="eyebrow">Direction 01</p><span class="badge">Grounded · low creative risk</span></div>
+      <h3>Quietly organic</h3>
+      <p class="description">An earthy, editorial direction pairing natural imagery with graceful serif headlines, warm paper tones, and restrained terracotta accents.</p>
+      <div class="images"><div class="image"><img data-reference="0" alt="First reference from your library" hidden /></div><div class="image"><img data-reference="1" alt="Second reference from your library" hidden /></div><div class="image"><img data-reference="2" alt="Third reference from your library" hidden /></div></div>
+      <p class="section-label">Colour palette</p>
+      <div class="palette">
+        <div><div class="swatch" style="background:#EEE8DB"></div><p class="colour"><b>Paper · background</b>#EEE8DB</p></div>
+        <div><div class="swatch" style="background:#303A30"></div><p class="colour"><b>Forest · text</b>#303A30</p></div>
+        <div><div class="swatch" style="background:#8E533D"></div><p class="colour"><b>Clay · accent</b>#8E533D</p></div>
+        <div><div class="swatch" style="background:#A49779"></div><p class="colour"><b>Sand · secondary</b>#A49779</p></div>
+        <div><div class="swatch" style="background:#C9CBB8"></div><p class="colour"><b>Sage · surface</b>#C9CBB8</p></div>
+      </div>
+      <p class="section-label">Typography · Google Fonts</p>
+      <div class="type"><div><p class="serif">Aa / Stories</p><p class="name">Crimson Pro Light · headings</p></div><div><p class="sans">Aa / Details</p><p class="name">DM Sans Regular · body</p></div></div>
+      <div class="sample-slot"></div>
+      <p class="rationale"><strong>Connection to the brief</strong><br />Natural colours and tactile imagery carry the warmth. The serif/sans pairing provides an editorial hierarchy without making the overall direction overly expressive.</p>
+    </template>
+    <template id="sample-content">
+      <p class="section-label">In context · small design sample</p>
+      <div class="design-sample">
+        <div class="sample-top"><b>STILL / STUDIO</b><span>Collection &nbsp; / &nbsp; Journal</span></div>
+        <div class="sample-content"><div><span class="sample-label">A slower perspective</span><h4>Made of<br />earth &amp; light.</h4><p>Stories of texture, thoughtful form, and the beauty found in everyday details.</p><span class="sample-action">Explore the collection</span></div><div class="sample-photo"><img data-reference="0" alt="Reference imagery used in the sample composition" hidden /></div></div>
+      </div>
+      <p class="annotation">A typography, colour, and imagery study—not a full website design. The example action is illustrative.</p>
+    </template>
+    <script>
+      document.querySelectorAll('.board').forEach((board) => {
+        board.append(document.getElementById('board-content').content.cloneNode(true))
+      })
+      document.querySelector('#sample-board .sample-slot').append(document.getElementById('sample-content').content.cloneNode(true))
+
+      async function loadReferences() {
+        try {
+          const response = await fetch('http://localhost:4000/photos')
+          if (!response.ok) throw new Error('Library unavailable')
+          const photos = await response.json()
+          const score = (photo) => {
+            const text = (photo.name + ' ' + photo.keywords.join(' ')).toLowerCase()
+            return [/earth|organic|natural/, /floral|flower|texture/, /fashion/, /editorial/]
+              .reduce((total, pattern, index) => total + (pattern.test(text) ? [8, 6, 3, 1][index] : 0), 0)
+          }
+          const choices = [...photos].sort((left, right) => score(right) - score(left)).slice(0, 3)
+          document.querySelectorAll('[data-reference]').forEach((image) => {
+            const photo = choices[Number(image.dataset.reference)]
+            if (!photo) return
+            image.src = 'http://localhost:4000' + photo.url
+            image.alt = photo.name || 'Library reference'
+            image.hidden = false
+          })
+        } catch {
+          document.querySelector('.footer').textContent += ' Library images are currently unavailable; placeholder colours are shown.'
+        }
+      }
+      loadReferences()
+    </script>
+  </body>
+</html>

@@ -100,7 +100,13 @@ const upload = multer({
 app.use(cors())
 app.use(express.json())
 app.use('/uploads', express.static(uploadsDir))
-app.use('/search-snapshots', express.static(searchStore.snapshotsDir))
+app.use('/search-snapshots', (request, response, next) => {
+  if (!searchStore.has(request.path.split('/')[1])) {
+    response.status(404).json({ error: 'Saved search not found' })
+    return
+  }
+  next()
+}, express.static(searchStore.snapshotsDir))
 
 app.get('/health', (_request, response) => {
   response.json({ ok: true })
@@ -149,6 +155,31 @@ app.get('/searches/:id', (request, response, next) => {
       return
     }
     response.json(search)
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.delete('/searches/:id', async (request, response, next) => {
+  try {
+    if (!await searchStore.delete(request.params.id)) {
+      response.status(404).json({ error: 'Saved search not found' })
+      return
+    }
+    response.json({ deletedId: request.params.id })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.delete('/searches', async (request, response, next) => {
+  const result = z.object({ ids: z.array(z.string().uuid()).min(1).max(1000) }).safeParse(request.body)
+  if (!result.success) {
+    response.status(400).json({ error: 'Select between 1 and 1000 saved searches' })
+    return
+  }
+  try {
+    response.json({ deletedIds: await searchStore.deleteMany(result.data.ids) })
   } catch (error) {
     next(error)
   }

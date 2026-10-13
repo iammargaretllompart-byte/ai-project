@@ -10,13 +10,14 @@ import {
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
+import { apiBaseUrl } from '@/lib/api'
+import { notificationEvent, notify, type AppNotification as Notification } from '@/lib/notifications'
+import HistoryPage from '@/pages/HistoryPage'
 
-const apiBaseUrl = 'http://localhost:4000'
 const activeUploadJobKey = 'visual-library-active-upload-job'
 const uploadStartedEvent = 'visual-library-upload-started'
 const uploadCompletedEvent = 'visual-library-upload-completed'
 const uploadFailedEvent = 'visual-library-upload-failed'
-const notificationEvent = 'visual-library-notification'
 
 type Photo = {
   id: string
@@ -74,18 +75,6 @@ type UploadJob = {
   }>
 }
 
-type Notification = {
-  id: string
-  kind: 'success' | 'error'
-  message: string
-}
-
-function notify(kind: Notification['kind'], message: string) {
-  window.dispatchEvent(new CustomEvent<Notification>(notificationEvent, {
-    detail: { id: crypto.randomUUID(), kind, message },
-  }))
-}
-
 let uploadAudioContext: AudioContext | null = null
 
 function getUploadAudioContext() {
@@ -135,6 +124,8 @@ function App() {
     page = <AdminPage />
   } else if (window.location.pathname === '/search') {
     page = <SearchPage />
+  } else if (window.location.pathname === '/history') {
+    page = <HistoryPage />
   } else {
     page = (
       <main className="app-canvas min-h-screen text-white">
@@ -660,6 +651,7 @@ function ReferenceCollage() {
 }
 
 function SearchPage() {
+  const fromHistory = new URL(window.location.href).searchParams.get('from') === 'history'
   const [prompt, setPrompt] = useState('')
   const [results, setResults] = useState<PhotoSearchResult[]>([])
   const [keywordsUsed, setKeywordsUsed] = useState<string[]>([])
@@ -825,6 +817,10 @@ function SearchPage() {
   function closeSearch() {
     requestRef.current?.abort()
     requestRef.current = null
+    if (fromHistory) {
+      window.location.assign('/history')
+      return
+    }
     setPrompt('')
     setHasSearched(false)
     setIsSearching(false)
@@ -842,7 +838,9 @@ function SearchPage() {
 
   async function copySearchLink() {
     try {
-      await navigator.clipboard.writeText(window.location.href)
+      const url = new URL(window.location.href)
+      url.searchParams.delete('from')
+      await navigator.clipboard.writeText(url.toString())
       notify('success', 'Saved-search link copied.')
     } catch {
       notify('error', 'Could not copy the link. You can copy it from the address bar.')
@@ -850,15 +848,18 @@ function SearchPage() {
   }
 
   return (
-    <main className="app-canvas search-canvas relative isolate min-h-screen overflow-hidden py-8 text-white">
+    <main className="app-canvas search-canvas relative isolate min-h-screen overflow-hidden pb-8 text-white">
       <ReferenceCollage />
       <nav
         aria-label="Account"
-        className={`page-container relative z-10 flex justify-end ${hasSearched ? 'invisible' : ''}`}
+        className={`page-container page-header relative z-10 justify-end gap-3 ${hasSearched ? 'invisible' : ''}`}
       >
+        <Button asChild variant="outline">
+          <a href="/history">Your history</a>
+        </Button>
         <AdminAccess />
       </nav>
-      <div className={`pointer-events-none relative z-10 mx-auto flex min-h-[calc(100vh-7.75rem)] w-full items-center justify-center px-6 py-10 ${hasSearched ? 'invisible' : ''}`}>
+      <div className={`pointer-events-none relative z-10 mx-auto flex min-h-[calc(100vh-var(--page-header-height)-2rem)] w-full items-center justify-center px-6 py-10 ${hasSearched ? 'invisible' : ''}`}>
         <section className="glass-surface frosted-surface search-panel pointer-events-auto w-full rounded-3xl p-6 sm:p-10 md:w-[640px] lg:w-[800px] xl:w-[960px] xl:p-12 min-[1920px]:w-[1040px]">
           <p className="text-sm font-medium uppercase tracking-[0.3em] text-[#85B9F1]">
             References Search
@@ -923,7 +924,7 @@ function SearchPage() {
           className={`fixed inset-0 z-50 overflow-y-auto text-white ${isSearching ? '' : 'app-canvas'}`}
           role="dialog"
         >
-          <header className="canvas-overlay sticky top-0 z-10 border-b border-white/10 py-4 backdrop-blur-xl">
+          <header className="page-header canvas-overlay sticky top-0 z-10 border-b border-white/10 backdrop-blur-xl">
             <div className="page-container flex items-center justify-between gap-4">
               <div className="min-w-0 text-left">
                 <p className="text-xs font-medium uppercase tracking-[0.25em] text-white">
@@ -938,9 +939,9 @@ function SearchPage() {
                   </Button>
                 ) : null}
                 <Button
-                  aria-label="Back to search"
+                  aria-label="Close search results"
                   size="icon"
-                  title="Back to search"
+                  title="Close search results"
                   variant="outline"
                   onClick={closeSearch}
                 >
@@ -951,7 +952,7 @@ function SearchPage() {
           </header>
 
           {isSearching ? (
-            <div className="mx-auto flex min-h-[calc(100vh-73px)] max-w-3xl flex-col items-center justify-center px-6 py-16 text-center">
+            <div className="mx-auto flex min-h-[calc(100vh-var(--page-header-height))] max-w-3xl flex-col items-center justify-center px-6 py-16 text-center">
               <div className="relative flex h-28 w-28 items-center justify-center">
                 <div className="absolute inset-0 animate-ping rounded-full bg-[#85B9F1]/10" />
                 <div className="absolute inset-3 rounded-full border border-[#85B9F1]/20 bg-[#85B9F1]/5" />
@@ -1594,11 +1595,11 @@ function AdminPage() {
     : undefined
 
   return (
-    <main className="app-canvas min-h-screen py-8 text-white">
+    <main className="app-canvas min-h-screen pb-8 text-white">
       <div className="page-container">
         <nav
           aria-label="Breadcrumb"
-          className="mb-10 flex flex-wrap items-center gap-4 border-b border-white/10 pb-5"
+          className="page-header mb-10 flex-wrap gap-4 border-b border-white/10"
         >
           <Button asChild size="icon" variant="outline">
             <a aria-label="Exit admin" href="/search" title="Exit admin">

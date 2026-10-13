@@ -22,9 +22,11 @@ The snapshots preserve the original keywords, titles, scores, selection reasons,
 - `POST /search`: returns the original result structure plus `id`, `prompt`, and `createdAt`; reference URLs point to preserved image copies.
 - `GET /searches?limit=30&offset=0`: returns `{ searches, total }`, ordered newest-first. Limit is 1–100 and offset is nonnegative.
 - `GET /searches/:id`: restores the complete saved result without calling the AI; returns 404 for a missing ID.
+- `DELETE /searches/:id`: permanently deletes a saved search and its image snapshots; returns 404 for a missing ID. Library originals and other searches are preserved.
+- `DELETE /searches` with `{ ids: [...] }`: deletes the selected searches atomically, returning `{ deletedIds }`. Missing or repeated IDs are ignored; accepts 1–1000 UUIDs.
 - `GET /search-snapshots/:id/:filename`: serves a preserved reference image.
 
-The frontend opens saved results at `/search?search=<id>`. New searches update the URL automatically; the results header has a **Copy search link** action. Refreshing or opening this link restores the saved snapshot. The dedicated History page is stage 2.
+The frontend opens saved results at `/search?search=<id>`. New searches update the URL automatically; the results header has a **Copy search link** action. Refreshing or opening this link restores the saved snapshot. The dedicated `/history` page lists searches newest-first with image previews, dates, and pagination. It is accessed via **Your history** before starting a search. Clicking a card opens its results; closing returns to History. Use **Select**, choose cards, and **Delete selected** to remove searches after confirmation. Selection persists across pages and **Cancel selection** clears it. Deletion makes the saved URLs unavailable.
 
 ## Backup and rollback
 

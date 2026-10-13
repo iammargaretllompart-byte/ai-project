@@ -125,3 +125,33 @@ test('opening a newer database schema fails without changing its version', async
     await fs.rm(root, { recursive: true, force: true })
   }
 })
+
+test('deleting a search removes its snapshots while preserving the library and other searches', async (context) => {
+  const state = await fixture(context)
+  const first = await state.store.save('Delete me', state.result)
+  const second = await state.store.save('Keep me', state.result)
+  assert.equal(state.store.has(first.id), true)
+  assert.equal(await state.store.delete(first.id), true)
+  assert.equal(state.store.has(first.id), false)
+  assert.equal(state.store.get(first.id), null)
+  assert.equal(await state.store.delete(first.id), false)
+  assert.deepEqual(await fs.readdir(state.store.snapshotsDir), [second.id])
+  assert.equal(await fs.readFile(path.join(state.uploadsDir, 'first.jpeg'), 'utf8'), 'original image bytes')
+  assert.deepEqual(state.store.get(second.id), second)
+  state.store.close()
+  state.store = await SearchStore.open(state.dataDir, state.uploadsDir)
+  assert.equal(state.store.list().total, 1)
+  assert.equal(state.store.get(first.id), null)
+})
+
+test('bulk deletion removes selected searches once and preserves unselected snapshots', async (context) => {
+  const state = await fixture(context)
+  const first = await state.store.save('First', state.result)
+  const second = await state.store.save('Second', state.result)
+  const keep = await state.store.save('Keep', state.result)
+  assert.deepEqual(await state.store.deleteMany([first.id, second.id, first.id, 'missing']), [first.id, second.id])
+  assert.deepEqual(state.store.list().searches.map((search) => search.id), [keep.id])
+  assert.deepEqual(await fs.readdir(state.store.snapshotsDir), [keep.id])
+  assert.equal(await fs.readFile(path.join(state.uploadsDir, 'first.jpeg'), 'utf8'), 'original image bytes')
+  assert.deepEqual(await state.store.deleteMany([first.id, second.id]), [])
+})
