@@ -7,6 +7,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import multer from 'multer'
 import { z } from 'zod'
+import { SearchStore } from './search-store.js'
 
 type Photo = {
   id: string
@@ -73,6 +74,8 @@ const dataDir = path.resolve('data')
 const uploadsDir = path.resolve('uploads')
 const photosFile = path.join(dataDir, 'photos.json')
 const uploadJobs = new Map<string, UploadJob>()
+await ensureStorage()
+const searchStore = await SearchStore.open(dataDir, uploadsDir)
 
 const upload = multer({
   storage: multer.diskStorage({
@@ -97,6 +100,7 @@ const upload = multer({
 app.use(cors())
 app.use(express.json())
 app.use('/uploads', express.static(uploadsDir))
+app.use('/search-snapshots', express.static(searchStore.snapshotsDir))
 
 app.get('/health', (_request, response) => {
   response.json({ ok: true })
@@ -119,7 +123,39 @@ app.get('/photos/search', async (request, response, next) => {
   }
 })
 
+app.get('/searches', (request, response, next) => {
+  const pagination = z.object({
+    limit: z.coerce.number().int().min(1).max(100).default(30),
+    offset: z.coerce.number().int().min(0).default(0),
+  }).safeParse(request.query)
+
+  if (!pagination.success) {
+    response.status(400).json({ error: 'Invalid search pagination' })
+    return
+  }
+
+  try {
+    response.json(searchStore.list(pagination.data.limit, pagination.data.offset))
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.get('/searches/:id', (request, response, next) => {
+  try {
+    const search = searchStore.get(request.params.id)
+    if (!search) {
+      response.status(404).json({ error: 'Saved search not found' })
+      return
+    }
+    response.json(search)
+  } catch (error) {
+    next(error)
+  }
+})
+
 app.post('/search', async (request, response) => {
+  let isSavingSnapshot = false
   try {
     const totalStartedAt = performance.now()
     const prompt = typeof request.body.prompt === 'string' ? request.body.prompt : ''
@@ -142,7 +178,8 @@ app.post('/search', async (request, response) => {
     const selection = await selectFinalPhotos(prompt, agentSearch.candidatePhotos, sessionId)
     const selectionDuration = performance.now() - selectionStartedAt
 
-    response.json({
+    isSavingSnapshot = true
+    const savedSearch = await searchStore.save(prompt, {
       keywords: agentSearch.keywords,
       photos: selection.photos,
       selectedPhotos: selection.photos,
@@ -160,10 +197,13 @@ app.post('/search', async (request, response) => {
         },
       },
     })
+    response.json(savedSearch)
   } catch (error) {
-    console.error('AI search failed', error)
-    response.status(502).json({
-      error: 'AI search failed. No fallback results were returned.',
+    console.error(isSavingSnapshot ? 'Could not save search snapshot' : 'AI search failed', error)
+    response.status(isSavingSnapshot ? 500 : 502).json({
+      error: isSavingSnapshot
+        ? 'Search completed, but its snapshot could not be saved. Please try again.'
+        : 'AI search failed. No fallback results were returned.',
     })
   }
 })
@@ -872,8 +912,6 @@ const errorHandler: ErrorRequestHandler = (error, _request, response, _next) => 
 }
 
 app.use(errorHandler)
-
-await ensureStorage()
 
 app.listen(port, () => {
   console.log(`Backend running on http://localhost:${port}`)

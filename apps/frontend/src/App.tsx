@@ -34,6 +34,9 @@ type PhotoSearchResult = Photo & {
 }
 
 type SearchResponse = {
+  id?: string
+  prompt?: string
+  createdAt?: string
   keywords: string[]
   photos: PhotoSearchResult[]
   candidatePhotos?: PhotoSearchResult[]
@@ -665,7 +668,50 @@ function SearchPage() {
   const [isSearching, setIsSearching] = useState(false)
   const [loadingStep, setLoadingStep] = useState(0)
   const [message, setMessage] = useState('')
+  const [savedSearchId, setSavedSearchId] = useState<string | null>(null)
+  const [isRestoringSearch, setIsRestoringSearch] = useState(false)
   const requestRef = useRef<AbortController | null>(null)
+
+  useEffect(() => {
+    const id = new URL(window.location.href).searchParams.get('search')
+    if (!id) return
+
+    const controller = new AbortController()
+    requestRef.current = controller
+    setHasSearched(true)
+    setIsSearching(true)
+    setIsRestoringSearch(true)
+
+    async function restoreSearch() {
+      try {
+        const response = await fetch(`${apiBaseUrl}/searches/${encodeURIComponent(id!)}`, { signal: controller.signal })
+        if (!response.ok) {
+          throw new Error(response.status === 404 ? 'This saved search could not be found.' : 'Could not open the saved search.')
+        }
+        const data = (await response.json()) as SearchResponse
+        if (requestRef.current !== controller) return
+        setPrompt(data.prompt ?? '')
+        setKeywordsUsed(data.keywords)
+        setResults(data.photos)
+        setSearchDebug(data.debug ?? null)
+        setSavedSearchId(data.id ?? id)
+      } catch (error) {
+        if (controller.signal.aborted) return
+        const errorMessage = error instanceof Error ? error.message : 'Could not open the saved search.'
+        setMessage(errorMessage)
+        notify('error', errorMessage)
+      } finally {
+        if (requestRef.current === controller) {
+          requestRef.current = null
+          setIsSearching(false)
+          setIsRestoringSearch(false)
+        }
+      }
+    }
+
+    void restoreSearch()
+    return () => controller.abort()
+  }, [])
 
   const loadingMessages = [
     'Searching your library',
@@ -716,6 +762,8 @@ function SearchPage() {
     requestRef.current = controller
 
     setIsSearching(true)
+    setIsRestoringSearch(false)
+    setSavedSearchId(null)
     setLoadingStep(0)
     setMessage('')
     setResults([])
@@ -747,6 +795,12 @@ function SearchPage() {
       setKeywordsUsed(data.keywords)
       setResults(data.photos)
       setSearchDebug(data.debug ?? null)
+      setSavedSearchId(data.id ?? null)
+      if (data.id) {
+        const url = new URL(window.location.href)
+        url.searchParams.set('search', data.id)
+        window.history.replaceState(null, '', url)
+      }
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
         return
@@ -779,6 +833,20 @@ function SearchPage() {
     setResults([])
     setKeywordsUsed([])
     setSearchDebug(null)
+    setSavedSearchId(null)
+    setIsRestoringSearch(false)
+    const url = new URL(window.location.href)
+    url.searchParams.delete('search')
+    window.history.replaceState(null, '', url)
+  }
+
+  async function copySearchLink() {
+    try {
+      await navigator.clipboard.writeText(window.location.href)
+      notify('success', 'Saved-search link copied.')
+    } catch {
+      notify('error', 'Could not copy the link. You can copy it from the address bar.')
+    }
   }
 
   return (
@@ -863,15 +931,22 @@ function SearchPage() {
                 </p>
                 <p className="mt-1 truncate text-sm text-neutral-400">{prompt}</p>
               </div>
-              <Button
-                aria-label="Back to search"
-                size="icon"
-                title="Back to search"
-                variant="outline"
-                onClick={closeSearch}
-              >
-                <X className="h-4 w-4" />
-              </Button>
+              <div className="flex shrink-0 items-center gap-3">
+                {savedSearchId && !isSearching ? (
+                  <Button type="button" variant="outline" onClick={() => void copySearchLink()}>
+                    Copy search link
+                  </Button>
+                ) : null}
+                <Button
+                  aria-label="Back to search"
+                  size="icon"
+                  title="Back to search"
+                  variant="outline"
+                  onClick={closeSearch}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
           </header>
 
@@ -883,13 +958,15 @@ function SearchPage() {
                 <LoaderCircle className="relative h-10 w-10 animate-spin text-[#85B9F1]" />
               </div>
               <p className="mt-8 text-sm font-medium uppercase tracking-[0.3em] text-[#85B9F1]">
-                Agent at work
+                {isRestoringSearch ? 'Saved search' : 'Agent at work'}
               </p>
               <h2 className="headline-display mt-4">
-                {loadingMessages[loadingStep]}
+                {isRestoringSearch ? 'Opening your saved search' : loadingMessages[loadingStep]}
               </h2>
               <p className="mt-4 max-w-xl text-neutral-400">
-                The agent is searching your library and visually comparing the strongest candidates.
+                {isRestoringSearch
+                  ? 'Restoring your original results and preserved reference images.'
+                  : 'The agent is searching your library and visually comparing the strongest candidates.'}
               </p>
               <div className="mt-10 flex gap-2">
                 {loadingMessages.map((loadingMessage, index) => (
