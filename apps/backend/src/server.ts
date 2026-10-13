@@ -8,6 +8,8 @@ import path from 'node:path'
 import multer from 'multer'
 import { z } from 'zod'
 import { SearchStore } from './search-store.js'
+import { createMoodboardGenerator } from './moodboard-generator.js'
+import { MoodboardWorker } from './moodboard-worker.js'
 
 type Photo = {
   id: string
@@ -76,6 +78,7 @@ const photosFile = path.join(dataDir, 'photos.json')
 const uploadJobs = new Map<string, UploadJob>()
 await ensureStorage()
 const searchStore = await SearchStore.open(dataDir, uploadsDir)
+const moodboardWorker = new MoodboardWorker(searchStore, createMoodboardGenerator(searchStore.snapshotsDir, createAiModel))
 
 const upload = multer({
   storage: multer.diskStorage({
@@ -166,6 +169,7 @@ app.delete('/searches/:id', async (request, response, next) => {
       response.status(404).json({ error: 'Saved search not found' })
       return
     }
+    moodboardWorker.cancelSearches([request.params.id])
     response.json({ deletedId: request.params.id })
   } catch (error) {
     next(error)
@@ -179,10 +183,61 @@ app.delete('/searches', async (request, response, next) => {
     return
   }
   try {
-    response.json({ deletedIds: await searchStore.deleteMany(result.data.ids) })
+    const deletedIds = await searchStore.deleteMany(result.data.ids)
+    moodboardWorker.cancelSearches(deletedIds)
+    response.json({ deletedIds })
   } catch (error) {
     next(error)
   }
+})
+
+app.get('/searches/:id/moodboards', (request, response) => {
+  if (!searchStore.has(request.params.id)) {
+    response.status(404).json({ error: 'Saved search not found' })
+    return
+  }
+  response.json({ sets: searchStore.moodboards.list(request.params.id) })
+})
+
+app.post('/searches/:id/moodboards', (request, response, next) => {
+  const search = searchStore.get(request.params.id)
+  if (!search) {
+    response.status(404).json({ error: 'Saved search not found' })
+    return
+  }
+  if (!search.photos.length) {
+    response.status(400).json({ error: 'This search has no references to generate moodboards from' })
+    return
+  }
+  if (!aiApiKey) {
+    response.status(503).json({ error: 'AI generation is not configured' })
+    return
+  }
+  try {
+    const set = searchStore.moodboards.enqueue(search.id)
+    response.status(202).json(set)
+    moodboardWorker.wake()
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.get('/moodboards/:id', (request, response) => {
+  const set = searchStore.moodboards.get(request.params.id)
+  if (!set) {
+    response.status(404).json({ error: 'Moodboard set not found' })
+    return
+  }
+  response.json(set)
+})
+
+app.delete('/moodboards/:id', (request, response) => {
+  if (!searchStore.moodboards.delete(request.params.id)) {
+    response.status(404).json({ error: 'Moodboard set not found' })
+    return
+  }
+  moodboardWorker.cancelSet(request.params.id)
+  response.json({ deletedId: request.params.id })
 })
 
 app.post('/search', async (request, response) => {
@@ -944,6 +999,17 @@ const errorHandler: ErrorRequestHandler = (error, _request, response, _next) => 
 
 app.use(errorHandler)
 
-app.listen(port, () => {
+const server = app.listen(port, () => {
   console.log(`Backend running on http://localhost:${port}`)
 })
+moodboardWorker.start()
+
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+  process.once(signal, () => {
+    server.close()
+    void moodboardWorker.stop().finally(() => {
+      searchStore.close()
+      process.exit(0)
+    })
+  })
+}

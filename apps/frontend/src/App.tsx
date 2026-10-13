@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button'
 import { apiBaseUrl } from '@/lib/api'
 import { notificationEvent, notify, type AppNotification as Notification } from '@/lib/notifications'
 import HistoryPage from '@/pages/HistoryPage'
+import MoodboardGeneration from '@/components/MoodboardGeneration'
 
 const activeUploadJobKey = 'visual-library-active-upload-job'
 const uploadStartedEvent = 'visual-library-upload-started'
@@ -1060,6 +1061,8 @@ function SearchPage() {
                       </article>
                     ))}
                   </div>
+
+                  {savedSearchId ? <MoodboardGeneration key={savedSearchId} searchId={savedSearchId} /> : null}
 
                   <details className="glass-surface mt-8 rounded-xl p-4">
                     <summary className="cursor-pointer text-sm font-medium text-neutral-300">

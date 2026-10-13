@@ -3,6 +3,7 @@ import { ArrowLeft, LoaderCircle, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { apiBaseUrl } from '@/lib/api'
 import { notify } from '@/lib/notifications'
+import { isGenerating, moodboardStatus, type MoodboardSummary } from '@/lib/moodboards'
 
 type SearchSummary = {
   id: string
@@ -10,6 +11,7 @@ type SearchSummary = {
   createdAt: string
   photoCount: number
   previews: Array<{ id: string; name?: string; url: string }>
+  moodboardSets: MoodboardSummary[]
 }
 
 const pageSize = 12
@@ -32,9 +34,14 @@ export default function HistoryPage() {
 
   useEffect(() => {
     const controller = new AbortController()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let fetching = false
     setIsLoading(true)
     setError('')
-    void (async () => {
+    async function load() {
+      if (fetching || controller.signal.aborted) return
+      fetching = true
+      clearTimeout(timer)
       try {
         const response = await fetch(`${apiBaseUrl}/searches?limit=${pageSize}&offset=${offset}`, { signal: controller.signal })
         if (!response.ok) throw new Error('Could not load your search history. Please try again.')
@@ -46,13 +53,18 @@ export default function HistoryPage() {
         }
         setSearches(data.searches)
         setTotal(data.total)
+        if (data.searches.some((search) => search.moodboardSets.some(isGenerating))) timer = setTimeout(() => void load(), 3000)
       } catch (cause) {
         if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Could not load your search history.')
       } finally {
+        fetching = false
         if (!controller.signal.aborted) setIsLoading(false)
       }
-    })()
-    return () => controller.abort()
+    }
+    void load()
+    const onFocus = () => void load()
+    window.addEventListener('focus', onFocus)
+    return () => { controller.abort(); clearTimeout(timer); window.removeEventListener('focus', onFocus) }
   }, [offset, revision])
 
   const closeDelete = useCallback(() => {
@@ -177,6 +189,9 @@ export default function HistoryPage() {
                       <h2 className="headline-h3 break-words">{search.prompt}</h2>
                       <p className="text-xs text-neutral-500">Searched <time dateTime={search.createdAt}>{dateFormat.format(new Date(search.createdAt))}</time></p>
                       <p className="text-sm text-neutral-400">{search.photoCount} selected {search.photoCount === 1 ? 'reference' : 'references'}</p>
+                      {search.moodboardSets.length ? <p className={`text-xs ${search.moodboardSets[0].status === 'failed' ? 'text-red-300' : 'text-[#C2DCF8]'}`}>
+                        Moodboards · {moodboardStatus(search.moodboardSets.find(isGenerating) ?? search.moodboardSets[0])} · {search.moodboardSets.filter((set) => set.status === 'ready').length} saved {search.moodboardSets.filter((set) => set.status === 'ready').length === 1 ? 'set' : 'sets'}
+                      </p> : null}
                     </div>
                   </>
                 )

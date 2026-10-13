@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { migrateMoodboards, MoodboardStore } from './moodboard-store.js'
+import type { MoodboardSummary } from './moodboard-design.js'
 
 export type SnapshotPhoto = {
   id: string
@@ -32,16 +34,20 @@ export type SavedSearch = SearchResult & {
 export type SearchSummary = Pick<SavedSearch, 'id' | 'prompt' | 'createdAt'> & {
   photoCount: number
   previews: Array<Pick<SnapshotPhoto, 'id' | 'name' | 'url'>>
+  moodboardSets: MoodboardSummary[]
 }
 
 type SearchRow = { snapshot_json: string }
 
 export class SearchStore {
+  readonly moodboards: MoodboardStore
   private constructor(
     private readonly database: DatabaseSync,
     readonly snapshotsDir: string,
     private readonly uploadsDir: string,
-  ) {}
+  ) {
+    this.moodboards = new MoodboardStore(database)
+  }
 
   static async open(dataDir: string, uploadsDir: string) {
     await fs.mkdir(dataDir, { recursive: true })
@@ -52,7 +58,7 @@ export class SearchStore {
     try {
       database.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;')
       const version = (database.prepare('PRAGMA user_version').get() as { user_version: number }).user_version
-      if (version > 1) throw new Error('Workspace database was created by a newer application version')
+      if (version > 2) throw new Error('Workspace database was created by a newer application version')
 
       if (version === 0) {
         database.exec(`
@@ -69,6 +75,8 @@ export class SearchStore {
           COMMIT;
         `)
       }
+
+      if (version < 2) migrateMoodboards(database)
 
       // A crash before the database insert can leave unpublished image copies.
       const savedIds = new Set(database.prepare('SELECT id FROM searches').all().map((row) => String(row.id)))
@@ -147,6 +155,7 @@ export class SearchStore {
         createdAt: saved.createdAt,
         photoCount: saved.photos.length,
         previews: saved.photos.slice(0, 3).map(({ id, name, url }) => ({ id, name, url })),
+        moodboardSets: this.moodboards.list(saved.id),
       }
     })
     const total = Number(this.database.prepare('SELECT COUNT(*) AS count FROM searches').get()!.count)
