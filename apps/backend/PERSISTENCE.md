@@ -1,4 +1,4 @@
-# Workspace persistence and generation (stages 1–3)
+# Workspace persistence, generation, and moodboards (stages 1–4)
 
 Run the backend with Node.js 22.13 or newer. SQLite uses Node's built-in `node:sqlite` module.
 
@@ -27,14 +27,22 @@ The snapshots preserve the original keywords, titles, scores, selection reasons,
 - `GET /search-snapshots/:id/:filename`: serves a preserved reference image.
 - `POST /searches/:id/moodboards`: enqueues a set of three directions and returns 202 immediately. Repeated requests while a set is queued/running return that same active set. After completion or failure, requesting again creates a new set and preserves previous ones.
 - `GET /searches/:id/moodboards`: lists saved set summaries, newest-first.
-- `GET /moodboards/:id`: retrieves set status and, when ready, the saved design and extracted image colours. This endpoint never invokes AI.
+- `GET /moodboards/:id`: retrieves set status and, when ready, the saved design and extracted image colours, plus the original search prompt, preserved returned references, and active set ID. This endpoint never invokes AI.
 - `DELETE /moodboards/:id`: deletes one set, cancelling it if active, without removing the search or other sets.
 
 The frontend opens saved results at `/search?search=<id>`. New searches update the URL automatically; the results header has a **Copy search link** action. Refreshing or opening this link restores the saved snapshot. The dedicated `/history` page lists searches newest-first with image previews, dates, and pagination. It is accessed via **Your history** before starting a search. Clicking a card opens its results; closing returns to History. Use **Select**, choose cards, and **Delete selected** to remove searches after confirmation. Selection persists across pages and **Cancel selection** clears it. Deletion makes the saved URLs unavailable.
 
 ## Background moodboard generation
 
-In search results, **Generate moodboards** starts a durable job. **Regenerate moodboards** creates a new independent set. The results page shows progress and saved direction-plan previews; History displays Generating, Ready, or Failed. Polling uses saved status endpoints and never triggers another AI request. The full shareable moodboard-set presentation is stage 4.
+In search results, **Generate moodboards** starts a durable job. **Regenerate moodboards** creates a new independent set. The results page shows progress and saved direction-plan previews; History displays Generating, Ready, or Failed. Polling uses saved status endpoints and never triggers another AI request.
+
+## Moodboard-set pages
+
+**Open moodboard set** in search results opens `/moodboards/<set-id>`. Each set has its own stable URL, a compact overview and jump links, and three vertically arranged directions with preserved reference collages, typography previews, five-role colour palettes, source/refinement rationale, and design samples. Fonts are loaded from Google Fonts at the validated selected weights; generated text is rendered by React, with no AI HTML or executable code.
+
+Controlled sample templates cover landing pages, mobile apps, editorial layouts, and brand boards. All three directions in a set use the same saved sample format and content structure with their own typography, colours, references, and copy. Sample actions are illustrative. Actual page actions include **Copy share link**, **Regenerate**, and **Delete set** with confirmation. Regeneration opens a new set's progress page and preserves the previous URL. Deleted sets show an unavailable page; other sets and original references remain available.
+
+The pages can be opened without signing in. During local development, copied links use localhost; internet-accessible sharing requires the later deployment step. The backend base URL remains configured in `apps/frontend/src/lib/api.ts` for the local setup.
 
 The worker processes one set at a time. It reads **all returned references (`photos`)**, not the discarded candidates, from the preserved snapshots; extracts representative colours using Sharp; and sends resized versions of those same images, colours, original prompt, and metadata to the existing configured AI model. One coordinated planning call chooses three risk levels, Google Fonts pairings from a verified catalogue, source-linked palettes, rationale, and structured sample copy. All directions in a set share a project-appropriate sample format. One validation-feedback retry is allowed if the generated design is invalid.
 

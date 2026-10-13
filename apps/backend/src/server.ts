@@ -228,7 +228,12 @@ app.get('/moodboards/:id', (request, response) => {
     response.status(404).json({ error: 'Moodboard set not found' })
     return
   }
-  response.json(set)
+  const search = searchStore.get(set.searchId)!
+  response.json({
+    ...set,
+    search: { id: search.id, prompt: search.prompt, createdAt: search.createdAt, photos: search.photos },
+    activeSetId: searchStore.moodboards.list(set.searchId).find((item) => item.status === 'queued' || item.status === 'running')?.id ?? null,
+  })
 })
 
 app.delete('/moodboards/:id', (request, response) => {

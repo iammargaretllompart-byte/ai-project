@@ -116,6 +116,7 @@ export default function MoodboardGeneration({ searchId }: { searchId: string }) 
         <div><p>{selected.stage}</p><p className="mt-2 text-sm text-neutral-400">Generation continues in the background. History will show when it’s ready.</p></div>
       </div> : null}
       {selected?.status === 'failed' ? <p className="mt-6 text-sm text-red-300" role="alert">{selected.error}</p> : null}
+      {selected ? <Button asChild variant="outline" className="mt-5"><a href={`/moodboards/${selected.id}`}>Open moodboard set</a></Button> : null}
       {detail?.design ? (
         <div className="mt-6">
           <p className="mb-5 text-sm text-neutral-400">Saved direction plan · {detail.design.sampleFormat.replace(/-/g, ' ')} samples · {detail.design.sampleFormatReason}</p>

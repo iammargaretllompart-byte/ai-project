@@ -10,7 +10,7 @@ export type MoodboardSummary = {
 
 export type MoodboardSet = MoodboardSummary & {
   design: null | {
-    sampleFormat: string
+    sampleFormat: 'landing-page' | 'mobile-app' | 'editorial' | 'brand-board'
     sampleFormatReason: string
     directions: Array<{
       risk: 'Grounded' | 'Exploratory' | 'Bold'
@@ -23,6 +23,13 @@ export type MoodboardSet = MoodboardSummary & {
       sample: { eyebrow: string; headline: string; description: string; actionLabel: string; items: Array<{ label: string; value: string }> }
     }>
   }
+}
+
+export type MoodboardDirection = NonNullable<MoodboardSet['design']>['directions'][number]
+export type MoodboardPhoto = { id: string; name?: string; originalName: string; url: string; keywords: string[] }
+export type MoodboardPageData = MoodboardSet & {
+  search: { id: string; prompt: string; createdAt: string; photos: MoodboardPhoto[] }
+  activeSetId: string | null
 }
 
 export function isGenerating(set: MoodboardSummary) {

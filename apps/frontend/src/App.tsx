@@ -14,6 +14,8 @@ import { apiBaseUrl } from '@/lib/api'
 import { notificationEvent, notify, type AppNotification as Notification } from '@/lib/notifications'
 import HistoryPage from '@/pages/HistoryPage'
 import MoodboardGeneration from '@/components/MoodboardGeneration'
+import MoodboardPage from '@/pages/MoodboardPage'
+import { copyText } from '@/lib/clipboard'
 
 const activeUploadJobKey = 'visual-library-active-upload-job'
 const uploadStartedEvent = 'visual-library-upload-started'
@@ -127,6 +129,8 @@ function App() {
     page = <SearchPage />
   } else if (window.location.pathname === '/history') {
     page = <HistoryPage />
+  } else if (/^\/moodboards\/[^/]+\/?$/.test(window.location.pathname)) {
+    page = <MoodboardPage setId={window.location.pathname.split('/')[2]} />
   } else {
     page = (
       <main className="app-canvas min-h-screen text-white">
@@ -841,7 +845,7 @@ function SearchPage() {
     try {
       const url = new URL(window.location.href)
       url.searchParams.delete('from')
-      await navigator.clipboard.writeText(url.toString())
+      await copyText(url.toString())
       notify('success', 'Saved-search link copied.')
     } catch {
       notify('error', 'Could not copy the link. You can copy it from the address bar.')
