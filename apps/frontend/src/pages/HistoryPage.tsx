@@ -53,9 +53,13 @@ export default function HistoryPage() {
         }
         setSearches(data.searches)
         setTotal(data.total)
+        setError('')
         if (data.searches.some((search) => search.moodboardSets.some(isGenerating))) timer = setTimeout(() => void load(), 3000)
       } catch (cause) {
-        if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Could not load your search history.')
+        if (!controller.signal.aborted) {
+          setError(cause instanceof Error ? cause.message : 'Could not load your search history.')
+          timer = setTimeout(() => void load(), 5000)
+        }
       } finally {
         fetching = false
         if (!controller.signal.aborted) setIsLoading(false)

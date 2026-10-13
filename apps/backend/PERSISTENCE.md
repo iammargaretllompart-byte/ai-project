@@ -57,3 +57,11 @@ Before copying a complete workspace backup, stop the backend so database and ima
 To restore: stop the backend, back up the current workspace, restore the chosen checkpoint's code, data, uploads, and configuration, then restart and check the library and saved-search links.
 
 Run `npm test` for isolated persistence tests; these use temporary directories and do not modify the real library.
+
+## End-to-end verification (stage 5)
+
+`tests/server-flow.test.ts` starts the real backend as a separate process against a temporary workspace and an isolated Anthropic-compatible test provider. It exercises the actual HTTP routes, AI SDK tool calls, Sharp extraction, SQLite migrations/jobs, and snapshot files without using a real AI key or changing the working library.
+
+The integration check covers completed/failed/empty searches, history and snapshot restoration without AI calls, generation and regeneration, image/metadata preservation after library edits and deletion, duplicate active requests, a hard process crash and recovery under the same set ID, invalid-generation failure and retry, cancellation of a running set, search deletion cascading to ready/failed/running sets, and preservation of unrelated searches and images. It runs as part of `npm test`; to run only this check, use `npx tsx --test tests/server-flow.test.ts`.
+
+History and the saved-set panel retry transient loading failures automatically after five seconds. Successful recovery clears the error; a deleted search's set list stops retrying its 404 response. Browser checks also exercise a real search through History and the full moodboard page, and simulated temporary connection loss in both views at mobile width.

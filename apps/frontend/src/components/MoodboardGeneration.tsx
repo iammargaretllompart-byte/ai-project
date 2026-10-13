@@ -31,9 +31,13 @@ export default function MoodboardGeneration({ searchId }: { searchId: string }) 
       if (fetching || controller.signal.aborted) return
       fetching = true
       clearTimeout(timer)
+      let retry = true
       try {
         const response = await fetch(`${apiBaseUrl}/searches/${encodeURIComponent(searchId)}/moodboards`, { signal: controller.signal })
-        if (!response.ok) throw new Error('Could not load saved moodboard sets.')
+        if (!response.ok) {
+          retry = response.status !== 404
+          throw new Error(response.status === 404 ? 'This saved search was deleted.' : 'Could not load saved moodboard sets.')
+        }
         const data = await response.json() as { sets: MoodboardSummary[] }
         if (controller.signal.aborted) return
         setSets(data.sets)
@@ -41,7 +45,10 @@ export default function MoodboardGeneration({ searchId }: { searchId: string }) 
         setSelectedId((current) => data.sets.some((set) => set.id === current) ? current : data.sets[0]?.id ?? null)
         if (data.sets.some(isGenerating)) timer = setTimeout(() => void load(), 3000)
       } catch (cause) {
-        if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Could not load moodboard sets.')
+        if (!controller.signal.aborted) {
+          setError(cause instanceof Error ? cause.message : 'Could not load moodboard sets.')
+          if (retry) timer = setTimeout(() => void load(), 5000)
+        }
       } finally {
         fetching = false
         if (!controller.signal.aborted) setIsLoading(false)

@@ -1,0 +1,229 @@
+import assert from 'node:assert/strict'
+import { spawn, type ChildProcess } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
+import { once, EventEmitter } from 'node:events'
+import { promises as fs } from 'node:fs'
+import { createServer } from 'node:http'
+import { createServer as createSocketServer } from 'node:net'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
+import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
+import sharp from 'sharp'
+import { designFixture } from './moodboard-fixture.js'
+
+async function until<T>(read: () => Promise<T>, check: (value: T) => boolean, timeout = 15_000): Promise<T> {
+  const deadline = Date.now() + timeout
+  while (Date.now() < deadline) {
+    const value = await read()
+    if (check(value)) return value
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+  throw new Error('Timed out waiting for the server state')
+}
+
+test('HTTP workflow preserves snapshots, resumes after a process crash, and revokes deleted links', { timeout: 60_000 }, async (context) => {
+  const root = await fs.mkdtemp(path.join(tmpdir(), 'visual-library-http-'))
+  const ids = Array.from({ length: 3 }, () => randomUUID())
+  const photos = ids.map((id, index) => ({ id, name: `Reference ${index + 1}`, filename: `${index}.png`,
+    originalName: `${index}.png`, url: `/uploads/${index}.png`, keywords: ['editorial', 'warm'], createdAt: new Date().toISOString() }))
+  await fs.mkdir(path.join(root, 'uploads'))
+  await fs.mkdir(path.join(root, 'data'))
+  const pixels = Buffer.alloc(96 * 96 * 3)
+  for (let index = 0; index < 96 * 96; index++) {
+    pixels.fill([255, 245, 16][Math.floor(index / (96 * 32))], index * 3, index * 3 + 3)
+  }
+  const png = await sharp(pixels, { raw: { width: 96, height: 96, channels: 3 } }).png().toBuffer()
+  await Promise.all(photos.map((photo) => fs.writeFile(path.join(root, 'uploads', photo.filename), png)))
+  await fs.writeFile(path.join(root, 'data/photos.json'), JSON.stringify(photos))
+
+  let mode: 'success' | 'hold' | 'invalid' | 'no-matches' | 'invalid-search' = 'success'
+  let release: (() => void) | undefined
+  let held: Promise<void> = Promise.resolve()
+  let calls = 0
+  let generationCalls = 0
+  const events = new EventEmitter()
+  const provider = createServer(async (request, response) => {
+    try {
+      const chunks: Buffer[] = []
+      for await (const chunk of request) chunks.push(Buffer.from(chunk))
+      const body = JSON.parse(Buffer.concat(chunks).toString()) as { tools: Array<{ name: string }> }
+      calls++
+      const names = body.tools.map((tool) => tool.name)
+      let content: Array<{ type: string; id: string; name: string; input: unknown }>
+      if (names.includes('searchImages')) {
+        content = (mode === 'no-matches' ? ['no-library-match', 'no-candidates'] : ['editorial', 'warm']).map((keyword) => ({ type: 'tool_use', id: randomUUID(), name: 'searchImages', input: { keywords: [keyword] } }))
+      } else if (names.includes('selectImages')) {
+        content = [{ type: 'tool_use', id: randomUUID(), name: 'selectImages', input: { selections: (mode === 'invalid-search' ? [randomUUID()] : ids).map((id) => ({ id, reason: 'Visible editorial reference.' })) } }]
+      } else if (names.includes('saveDirections')) {
+        generationCalls++
+        events.emit('generation')
+        const currentMode = mode
+        if (currentMode === 'hold') await held
+        const design = designFixture(ids)
+        if (currentMode === 'invalid') design.directions[0].palette[0].role = 'surface'
+        content = [{ type: 'tool_use', id: randomUUID(), name: 'saveDirections', input: design }]
+      } else throw new Error(`Unexpected provider tool: ${names.join(', ')}`)
+      if (response.destroyed) return
+      response.setHeader('content-type', 'application/json')
+      response.end(JSON.stringify({ id: randomUUID(), type: 'message', role: 'assistant', model: 'verification-model', content,
+        stop_reason: 'tool_use', stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1 } }))
+    } catch (error) {
+      if (!response.destroyed) { response.statusCode = 500; response.end(String(error)) }
+    }
+  })
+  provider.listen(0, '127.0.0.1')
+  await once(provider, 'listening')
+  const providerPort = (provider.address() as { port: number }).port
+  const reservation = createSocketServer()
+  reservation.listen(0, '127.0.0.1')
+  await once(reservation, 'listening')
+  const port = (reservation.address() as { port: number }).port
+  await new Promise<void>((resolve) => reservation.close(() => resolve()))
+  const base = `http://127.0.0.1:${port}`
+  let child: ChildProcess | null = null
+  let output = ''
+  async function start() {
+    child = spawn(process.execPath, ['--import', import.meta.resolve('tsx'), fileURLToPath(new URL('../src/server.ts', import.meta.url))], {
+      cwd: root,
+      env: { ...process.env, PORT: String(port), AI_API_KEY: 'isolated-test-key', AI_BASE_URL: `http://127.0.0.1:${providerPort}/v1`, AI_MODEL: 'verification-model' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    const current = child
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error(`Server startup timeout: ${output}`)), 10_000)
+      current.stdout!.on('data', (chunk) => {
+        output += String(chunk)
+        if (output.includes(`Backend running on http://localhost:${port}`)) { clearTimeout(timeout); resolve() }
+      })
+      current.stderr!.on('data', (chunk) => { output += String(chunk) })
+      current.once('error', (error) => { clearTimeout(timeout); reject(error) })
+      current.once('exit', (code) => { clearTimeout(timeout); reject(new Error(`Server exited (${code}): ${output}`)) })
+    })
+  }
+  async function stop(signal: NodeJS.Signals = 'SIGTERM') {
+    if (!child || child.exitCode !== null || child.signalCode !== null) return
+    const exited = once(child, 'exit')
+    child.kill(signal)
+    await exited
+    child = null
+    output = ''
+  }
+  context.after(async () => {
+    release?.()
+    await stop()
+    provider.closeAllConnections()
+    await new Promise<void>((resolve) => provider.close(() => resolve()))
+    await fs.rm(root, { recursive: true, force: true })
+  })
+  async function json(url: string, method = 'GET', body?: unknown) {
+    const response = await fetch(base + url, { method, headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) })
+    assert.ok(response.ok, `${method} ${url}: ${response.status}; ${output}`)
+    return response.json()
+  }
+  const waitSet = (id: string, status: string) => until(() => json(`/moodboards/${id}`), (set) => set.status === status)
+  function hold() { mode = 'hold'; held = new Promise<void>((resolve) => { release = resolve }) }
+  async function waitGeneration(count: number) {
+    while (generationCalls < count) await once(events, 'generation')
+  }
+
+  await start()
+  assert.equal((await json('/health')).ok, true)
+  const search = await json('/search', 'POST', { prompt: 'Warm editorial website' })
+  const keep = await json('/search', 'POST', { prompt: 'Second saved search' })
+  assert.equal(search.photos.length, 3)
+  const countBeforeReads = calls
+  assert.equal((await json('/searches')).total, 2)
+  assert.deepEqual(await json(`/searches/${search.id}`), search)
+  for (const photo of search.photos) assert.deepEqual(Buffer.from(await (await fetch(base + photo.url)).arrayBuffer()), png)
+  assert.equal(calls, countBeforeReads)
+  mode = 'invalid-search'
+  const failedSearch = await fetch(base + '/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: 'Invalid selection' }) })
+  assert.equal(failedSearch.status, 502)
+  assert.equal((await json('/searches')).total, 2)
+  mode = 'success'
+
+  const first = await json(`/searches/${search.id}/moodboards`, 'POST')
+  await waitSet(first.id, 'ready')
+  const ready = await json(`/moodboards/${first.id}`)
+  assert.equal(ready.design.directions.length, 3)
+  assert.equal(ready.search.prompt, search.prompt)
+  assert.deepEqual(ready.search.photos, search.photos)
+
+  await json(`/photos/${ids[0]}/keywords`, 'PATCH', { keywords: ['changed keyword'] })
+  await json('/photos', 'DELETE', { ids: [ids[0]] })
+  assert.equal((await json(`/searches/${search.id}`)).photos[0].name, search.photos[0].name)
+  assert.deepEqual((await json(`/searches/${search.id}`)).photos[0].keywords, ['editorial', 'warm'])
+  assert.deepEqual(Buffer.from(await (await fetch(base + search.photos[0].url)).arrayBuffer()), png)
+  const second = await json(`/searches/${search.id}/moodboards`, 'POST')
+  await waitSet(second.id, 'ready')
+  assert.notEqual(second.id, first.id)
+  assert.deepEqual((await json(`/moodboards/${first.id}`)).design, ready.design)
+
+  hold()
+  const nextCall = generationCalls + 1
+  const interrupted = await json(`/searches/${search.id}/moodboards`, 'POST')
+  await waitGeneration(nextCall)
+  assert.equal((await json(`/searches/${search.id}/moodboards`, 'POST')).id, interrupted.id)
+  assert.equal((await json(`/moodboards/${first.id}`)).activeSetId, interrupted.id)
+  await stop('SIGKILL')
+  await start()
+  await waitGeneration(nextCall + 1)
+  assert.equal((await json(`/moodboards/${interrupted.id}`)).attempts, 2)
+  mode = 'success'
+  release!()
+  await waitSet(interrupted.id, 'ready')
+  assert.equal((await json(`/moodboards/${first.id}`)).status, 'ready')
+
+  mode = 'invalid'
+  const failed = await json(`/searches/${search.id}/moodboards`, 'POST')
+  await waitSet(failed.id, 'failed')
+  mode = 'success'
+  const retry = await json(`/searches/${search.id}/moodboards`, 'POST')
+  await waitSet(retry.id, 'ready')
+  assert.notEqual(failed.id, retry.id)
+
+  hold()
+  const cancelCall = generationCalls + 1
+  const cancelled = await json(`/searches/${search.id}/moodboards`, 'POST')
+  await waitGeneration(cancelCall)
+  await json(`/moodboards/${cancelled.id}`, 'DELETE')
+  release!()
+  assert.equal((await fetch(base + `/moodboards/${cancelled.id}`)).status, 404)
+  assert.equal((await json(`/moodboards/${retry.id}`)).status, 'ready')
+
+  const reads = calls
+  await json(`/moodboards/${first.id}`)
+  await json(`/searches/${search.id}/moodboards`)
+  await json('/searches')
+  assert.equal(calls, reads)
+  hold()
+  const cascadeCall = generationCalls + 1
+  const cascade = await json(`/searches/${search.id}/moodboards`, 'POST')
+  await waitGeneration(cascadeCall)
+  await json('/searches', 'DELETE', { ids: [search.id] })
+  release!()
+  for (const id of [first.id, second.id, interrupted.id, failed.id, retry.id, cascade.id]) assert.equal((await fetch(base + `/moodboards/${id}`)).status, 404)
+  assert.equal((await fetch(base + search.photos[0].url)).status, 404)
+  assert.equal((await fetch(base + `/searches/${search.id}`)).status, 404)
+  assert.equal((await json('/searches')).total, 1)
+  assert.deepEqual(await json(`/searches/${keep.id}`), keep)
+  assert.deepEqual(Buffer.from(await (await fetch(base + keep.photos[0].url)).arrayBuffer()), png)
+  mode = 'no-matches'
+  const empty = await json('/search', 'POST', { prompt: 'A subject with no library matches' })
+  assert.equal(empty.photos.length, 0)
+  const generationsBeforeEmptyRequest = generationCalls
+  assert.equal((await fetch(base + `/searches/${empty.id}/moodboards`, { method: 'POST' })).status, 400)
+  assert.equal(generationCalls, generationsBeforeEmptyRequest)
+  assert.equal((await json('/searches')).total, 2)
+  await json(`/searches/${empty.id}`, 'DELETE')
+  assert.deepEqual(await fs.readdir(path.join(root, 'data/search-snapshots')), [keep.id])
+  const database = new DatabaseSync(path.join(root, 'data/workspace.sqlite'), { readOnly: true })
+  try {
+    assert.equal(database.prepare('PRAGMA integrity_check').get()!.integrity_check, 'ok')
+    assert.deepEqual(database.prepare('PRAGMA foreign_key_check').all(), [])
+  } finally {
+    database.close()
+  }
+})
