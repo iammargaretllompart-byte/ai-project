@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, LoaderCircle, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import MoodboardSample, { directionStyles } from '@/components/MoodboardSample'
 import { apiBaseUrl } from '@/lib/api'
 import { isGenerating, type MoodboardPageData, type MoodboardSummary } from '@/lib/moodboards'
 import { notify } from '@/lib/notifications'
@@ -142,7 +141,7 @@ export default function MoodboardPage({ setId }: { setId: string }) {
     }
   }
 
-  const backUrl = data ? `/search?search=${data.searchId}&from=history` : '/history'
+  const backUrl = data ? `/search?search=${data.searchId}&from=history&view=moodboards` : '/history'
   return (
     <main className="app-canvas min-h-screen pb-16 text-white">
       <div className="page-container">
@@ -182,10 +181,8 @@ export default function MoodboardPage({ setId }: { setId: string }) {
                 <div className="mt-4 flex overflow-hidden rounded-md">{direction.palette.map((colour) => <span key={colour.role} className="h-3 flex-1" style={{ backgroundColor: colour.hex }} />)}</div>
               </a>)}
             </nav>
-            <p className="mt-6 text-sm leading-6 text-neutral-400">Sample format: {data.design.sampleFormat.replace(/-/g, ' ')} · {data.design.sampleFormatReason}</p>
             <div className="mt-10 space-y-12">
               {data.design.directions.map((direction, index) => {
-                const styles = directionStyles(direction)
                 const photos = direction.references.map((reference) => data.search.photos.find((photo) => photo.id === reference.photoId)!).filter(Boolean)
                 return <section key={direction.risk} id={direction.risk.toLowerCase()} aria-labelledby={`${direction.risk}-title`} className="moodboard-direction glass-surface frosted-surface scroll-mt-6 rounded-3xl p-5 sm:p-8">
                   <header className="mb-8"><p className="text-xs uppercase tracking-[0.2em] text-[#85B9F1]">0{index + 1} · {direction.risk}</p>
@@ -207,9 +204,9 @@ export default function MoodboardPage({ setId }: { setId: string }) {
                       <section><h3 className="headline-h3 mb-4">Typography pairing</h3>
                         <div className="rounded-2xl border border-white/10 bg-black/20 p-5">
                           <p className="text-xs text-neutral-500">{direction.typography.heading.family} · {direction.typography.heading.weight}</p>
-                          <p className="mt-3 break-words text-4xl leading-tight sm:text-5xl" style={styles.heading}>{direction.sample.headline}</p>
+                          <p className="mt-3 break-words text-4xl leading-tight sm:text-5xl" style={{ fontFamily: `"${direction.typography.heading.family}", serif`, fontWeight: direction.typography.heading.weight }}>{direction.title}</p>
                           <p className="mt-6 text-xs text-neutral-500">{direction.typography.body.family} · {direction.typography.body.weight}</p>
-                          <p className="mt-3 text-base leading-7" style={styles.body}>{direction.sample.description}</p>
+                          <p className="mt-3 text-base leading-7" style={{ fontFamily: `"${direction.typography.body.family}", sans-serif`, fontWeight: direction.typography.body.weight }}>{direction.summary}</p>
                         </div><p className="mt-4 text-sm leading-6 text-neutral-400">{direction.typography.rationale}</p>
                       </section>
                       <section><h3 className="headline-h3 mb-4">Colour palette</h3>
@@ -223,9 +220,6 @@ export default function MoodboardPage({ setId }: { setId: string }) {
                       </section>
                     </div>
                   </div>
-                  <section className="mt-8 border-t border-white/10 pt-8"><h3 className="headline-h3 mb-4">Design sample</h3>
-                    <MoodboardSample direction={direction} format={data.design!.sampleFormat} photos={photos} />
-                  </section>
                   <a href="#moodboard-page-title" className="mt-6 inline-block text-sm text-neutral-400 hover:text-white">Back to overview</a>
                 </section>
               })}

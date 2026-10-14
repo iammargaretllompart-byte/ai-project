@@ -28,8 +28,6 @@ const text = z.string().trim().min(1).max(3000)
 const font = z.object({ family: z.enum(googleFonts.map((font) => font.family)), weight: z.number().int() })
 export const hexColour = z.string().regex(/^#[0-9a-fA-F]{6}$/).transform((value) => value.toUpperCase())
 export const designSchema = z.object({
-  sampleFormat: z.enum(['landing-page', 'mobile-app', 'editorial', 'brand-board']),
-  sampleFormatReason: text,
   directions: z.array(z.object({
     risk: z.enum(['Grounded', 'Exploratory', 'Bold']),
     title: z.string().trim().min(1).max(160),
@@ -43,13 +41,6 @@ export const designSchema = z.object({
       sourcePhotoId: z.string(),
       rationale: text,
     })).length(5),
-    sample: z.object({
-      eyebrow: z.string().trim().min(1).max(100),
-      headline: z.string().trim().min(1).max(200),
-      description: z.string().trim().min(1).max(600),
-      actionLabel: z.string().trim().min(1).max(60),
-      items: z.array(z.object({ label: z.string().trim().min(1).max(100), value: z.string().trim().min(1).max(150) })).min(1).max(3),
-    }),
   })).length(3),
 })
 
@@ -108,7 +99,7 @@ export function validateDesign(input: unknown, photoIds: string[], extracted?: E
     }
     const colour = (role: string) => direction.palette.find((colour) => colour.role === role)!.hex
     if (contrastRatio(colour('text'), colour('background')) < 4.5 || contrastRatio(colour('text'), colour('surface')) < 4.5) {
-      throw new Error('Sample text must have readable contrast on background and surface')
+      throw new Error('Palette text must have readable contrast on background and surface')
     }
     titles.add(direction.title.toLowerCase())
     typePairs.add(`${direction.typography.heading.family}/${direction.typography.body.family}`)

@@ -15,6 +15,7 @@ export type SnapshotPhoto = {
   createdAt: string
   score: number
   selectionReason?: string
+  matchType?: 'strong' | 'partial'
 }
 
 export type SearchResult = {

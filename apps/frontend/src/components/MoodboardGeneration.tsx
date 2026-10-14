@@ -98,7 +98,7 @@ export default function MoodboardGeneration({ searchId }: { searchId: string }) 
   }
 
   return (
-    <section className="mt-10 border-t border-white/10 pt-8" aria-labelledby="moodboard-generation-title">
+    <section aria-labelledby="moodboard-generation-title">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="headline-h1" id="moodboard-generation-title">Explore three directions</h2>
@@ -126,7 +126,7 @@ export default function MoodboardGeneration({ searchId }: { searchId: string }) 
       {selected ? <Button asChild variant="outline" className="mt-5"><a href={`/moodboards/${selected.id}`}>Open moodboard set</a></Button> : null}
       {detail?.design ? (
         <div className="mt-6">
-          <p className="mb-5 text-sm text-neutral-400">Saved direction plan · {detail.design.sampleFormat.replace(/-/g, ' ')} samples · {detail.design.sampleFormatReason}</p>
+          <p className="mb-5 text-sm text-neutral-400">Saved direction plan</p>
           <div className="grid gap-5 lg:grid-cols-3">
             {detail.design.directions.map((direction) => <article key={direction.risk} className="glass-surface frosted-surface rounded-2xl p-5">
               <p className="text-xs font-medium uppercase tracking-wider text-[#85B9F1]">{direction.risk}</p>

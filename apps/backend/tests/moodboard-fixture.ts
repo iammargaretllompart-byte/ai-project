@@ -2,7 +2,6 @@ import type { ExtractedColours, MoodboardDesign } from '../src/moodboard-design.
 
 export function designFixture(photoIds = ['photo-1']): MoodboardDesign {
   return {
-    sampleFormat: 'landing-page', sampleFormatReason: 'The brief requests a website.',
     directions: (['Grounded', 'Exploratory', 'Bold'] as const).map((risk, index) => ({
       risk, title: `${risk} direction`, summary: 'Visual summary', rationale: 'Connects to the image composition.',
       references: photoIds.map((photoId) => ({ photoId, reason: 'Uses the reference structure.' })),
@@ -17,7 +16,6 @@ export function designFixture(photoIds = ['photo-1']): MoodboardDesign {
         { role: 'primary' as const, hex: ['#333333', '#114477', '#883311'][index] },
         { role: 'accent' as const, hex: ['#555555', '#224488', '#993311'][index] },
       ].map((colour) => ({ ...colour, sourcePhotoId: photoIds[0], rationale: 'Refined from the reference.' })),
-      sample: { eyebrow: 'Studio', headline: 'A considered identity', description: 'Project-specific copy.', actionLabel: 'Explore', items: [{ label: 'Craft', value: 'Natural textures' }] },
     })),
   }
 }

@@ -25,7 +25,7 @@ async function until<T>(read: () => Promise<T>, check: (value: T) => boolean, ti
 
 test('HTTP workflow preserves snapshots, resumes after a process crash, and revokes deleted links', { timeout: 60_000 }, async (context) => {
   const root = await fs.mkdtemp(path.join(tmpdir(), 'visual-library-http-'))
-  const ids = Array.from({ length: 3 }, () => randomUUID())
+  const ids = Array.from({ length: 25 }, () => randomUUID())
   const photos = ids.map((id, index) => ({ id, name: `Reference ${index + 1}`, filename: `${index}.png`,
     originalName: `${index}.png`, url: `/uploads/${index}.png`, keywords: ['editorial', 'warm'], createdAt: new Date().toISOString() }))
   await fs.mkdir(path.join(root, 'uploads'))
@@ -38,7 +38,7 @@ test('HTTP workflow preserves snapshots, resumes after a process crash, and revo
   await Promise.all(photos.map((photo) => fs.writeFile(path.join(root, 'uploads', photo.filename), png)))
   await fs.writeFile(path.join(root, 'data/photos.json'), JSON.stringify(photos))
 
-  let mode: 'success' | 'hold' | 'invalid' | 'no-matches' | 'invalid-search' = 'success'
+  let mode: 'success' | 'hold' | 'invalid' | 'no-matches' | 'invalid-search' | 'partial-search' = 'success'
   let release: (() => void) | undefined
   let held: Promise<void> = Promise.resolve()
   let calls = 0
@@ -48,20 +48,29 @@ test('HTTP workflow preserves snapshots, resumes after a process crash, and revo
     try {
       const chunks: Buffer[] = []
       for await (const chunk of request) chunks.push(Buffer.from(chunk))
-      const body = JSON.parse(Buffer.concat(chunks).toString()) as { tools: Array<{ name: string }> }
+      const body = JSON.parse(Buffer.concat(chunks).toString()) as { tools: Array<{ name: string }>; messages: Array<{ content: Array<{ type: string; text?: string }> | string }> }
+      const texts = body.messages.flatMap((message) => typeof message.content === 'string' ? [message.content] : message.content.filter((part) => part.type === 'text').map((part) => part.text ?? ''))
       calls++
       const names = body.tools.map((tool) => tool.name)
       let content: Array<{ type: string; id: string; name: string; input: unknown }>
       if (names.includes('searchImages')) {
         content = (mode === 'no-matches' ? ['no-library-match', 'no-candidates'] : ['editorial', 'warm']).map((keyword) => ({ type: 'tool_use', id: randomUUID(), name: 'searchImages', input: { keywords: [keyword] } }))
       } else if (names.includes('selectImages')) {
-        content = [{ type: 'tool_use', id: randomUUID(), name: 'selectImages', input: { selections: (mode === 'invalid-search' ? [randomUUID()] : ids).map((id) => ({ id, reason: 'Visible editorial reference.' })) } }]
+        const candidates = [...new Set(texts.flatMap((text) => [...text.matchAll(/Candidate ID: ([0-9a-f-]+)/g)].map((match) => match[1])))]
+        content = [{ type: 'tool_use', id: randomUUID(), name: 'selectImages', input: { selections: (mode === 'invalid-search' ? [randomUUID()] : candidates.slice(0, 6)).map((id, index) => ({
+          id, matchType: mode === 'no-matches' || (mode === 'partial-search' && index >= 3) ? 'partial' : 'strong',
+          reason: mode === 'no-matches' || (mode === 'partial-search' && index >= 3) ? 'Matches the composition but lacks the requested subject.' : 'Visible editorial reference.',
+        })) } }]
       } else if (names.includes('saveDirections')) {
         generationCalls++
         events.emit('generation')
         const currentMode = mode
         if (currentMode === 'hold') await held
-        const design = designFixture(ids)
+        const references = texts.flatMap((text) => {
+          try { const value = JSON.parse(text); return typeof value.photoId === 'string' ? [value.photoId] : [] }
+          catch { return [] }
+        })
+        const design = designFixture(references)
         if (currentMode === 'invalid') design.directions[0].palette[0].role = 'surface'
         content = [{ type: 'tool_use', id: randomUUID(), name: 'saveDirections', input: design }]
       } else throw new Error(`Unexpected provider tool: ${names.join(', ')}`)
@@ -130,9 +139,12 @@ test('HTTP workflow preserves snapshots, resumes after a process crash, and revo
 
   await start()
   assert.equal((await json('/health')).ok, true)
+  assert.deepEqual(await json('/library/status'), { photoCount: 25, minimumReferences: 6, canSearch: true })
   const search = await json('/search', 'POST', { prompt: 'Warm editorial website' })
   const keep = await json('/search', 'POST', { prompt: 'Second saved search' })
-  assert.equal(search.photos.length, 3)
+  assert.equal(search.photos.length, 6)
+  assert.equal(new Set(search.photos.map((photo: { id: string }) => photo.id)).size, 6)
+  assert.equal(search.debug.visuallyReviewedPhotoCount, 25)
   const countBeforeReads = calls
   assert.equal((await json('/searches')).total, 2)
   assert.deepEqual(await json(`/searches/${search.id}`), search)
@@ -142,6 +154,14 @@ test('HTTP workflow preserves snapshots, resumes after a process crash, and revo
   const failedSearch = await fetch(base + '/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: 'Invalid selection' }) })
   assert.equal(failedSearch.status, 502)
   assert.equal((await json('/searches')).total, 2)
+  mode = 'success'
+
+  mode = 'partial-search'
+  const partialSearch = await json('/search', 'POST', { prompt: 'A compound brief with partial matches' })
+  assert.equal(partialSearch.photos.filter((photo: { matchType: string }) => photo.matchType === 'strong').length, 3)
+  assert.equal(partialSearch.photos.filter((photo: { matchType: string }) => photo.matchType === 'partial').length, 3)
+  assert.deepEqual((await json(`/searches/${partialSearch.id}`)).photos, partialSearch.photos)
+  await json(`/searches/${partialSearch.id}`, 'DELETE')
   mode = 'success'
 
   const first = await json(`/searches/${search.id}/moodboards`, 'POST')
@@ -211,13 +231,23 @@ test('HTTP workflow preserves snapshots, resumes after a process crash, and revo
   assert.deepEqual(await json(`/searches/${keep.id}`), keep)
   assert.deepEqual(Buffer.from(await (await fetch(base + keep.photos[0].url)).arrayBuffer()), png)
   mode = 'no-matches'
-  const empty = await json('/search', 'POST', { prompt: 'A subject with no library matches' })
-  assert.equal(empty.photos.length, 0)
-  const generationsBeforeEmptyRequest = generationCalls
-  assert.equal((await fetch(base + `/searches/${empty.id}/moodboards`, { method: 'POST' })).status, 400)
-  assert.equal(generationCalls, generationsBeforeEmptyRequest)
+  const expanded = await json('/search', 'POST', { prompt: 'A subject with no keyword matches' })
+  assert.equal(expanded.photos.length, 6)
+  assert.equal(expanded.debug.additionalLibraryPhotoCount, 24)
+  assert.ok(expanded.photos.every((photo: { matchType: string }) => photo.matchType === 'partial'))
+  await json('/photos', 'DELETE', { ids: ids.slice(3) })
+  assert.deepEqual(await json('/library/status'), { photoCount: 2, minimumReferences: 6, canSearch: false })
+  const callsBeforeBlockedSearch = calls
+  const small = await fetch(base + '/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: 'A brief for a library with only two references' }) })
+  assert.equal(small.status, 400)
+  assert.equal((await small.json()).minimumReferences, 6)
+  assert.equal(calls, callsBeforeBlockedSearch)
+  await json('/photos', 'DELETE', { ids })
+  assert.deepEqual(await json('/library/status'), { photoCount: 0, minimumReferences: 6, canSearch: false })
+  assert.equal((await fetch(base + '/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: 'A subject with an empty library' }) })).status, 400)
+  assert.equal(calls, callsBeforeBlockedSearch)
   assert.equal((await json('/searches')).total, 2)
-  await json(`/searches/${empty.id}`, 'DELETE')
+  await json(`/searches/${expanded.id}`, 'DELETE')
   assert.deepEqual(await fs.readdir(path.join(root, 'data/search-snapshots')), [keep.id])
   const database = new DatabaseSync(path.join(root, 'data/workspace.sqlite'), { readOnly: true })
   try {

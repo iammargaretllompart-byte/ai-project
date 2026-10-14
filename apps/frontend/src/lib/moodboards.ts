@@ -10,8 +10,6 @@ export type MoodboardSummary = {
 
 export type MoodboardSet = MoodboardSummary & {
   design: null | {
-    sampleFormat: 'landing-page' | 'mobile-app' | 'editorial' | 'brand-board'
-    sampleFormatReason: string
     directions: Array<{
       risk: 'Grounded' | 'Exploratory' | 'Bold'
       title: string
@@ -20,7 +18,6 @@ export type MoodboardSet = MoodboardSummary & {
       references: Array<{ photoId: string; reason: string }>
       typography: { heading: { family: string; weight: number }; body: { family: string; weight: number }; rationale: string }
       palette: Array<{ role: string; hex: string; sourcePhotoId: string; rationale: string }>
-      sample: { eyebrow: string; headline: string; description: string; actionLabel: string; items: Array<{ label: string; value: string }> }
     }>
   }
 }

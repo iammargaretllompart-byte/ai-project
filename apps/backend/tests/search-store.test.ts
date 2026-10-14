@@ -16,7 +16,7 @@ async function fixture(context: TestContext) {
   const photo = {
     id: 'photo-1', name: 'Original title', originalName: 'reference.jpeg', filename: 'first.jpeg',
     url: '/uploads/first.jpeg', keywords: ['editorial', 'warm'], createdAt: '2026-10-13T10:00:00Z',
-    score: 10, selectionReason: 'Matches the brief',
+    score: 10, selectionReason: 'Matches the brief', matchType: 'partial' as const,
   }
   const result: SearchResult = {
     keywords: ['editorial'], photos: [photo], selectedPhotos: [photo],
@@ -59,6 +59,7 @@ test('library edits and deletion cannot change historical metadata or image byte
   const restored = state.store.get(saved.id)!
   assert.equal(restored.photos[0].name, 'Original title')
   assert.deepEqual(restored.photos[0].keywords, ['editorial', 'warm'])
+  assert.equal(restored.photos[0].matchType, 'partial')
   assert.equal(await fs.readFile(path.join(state.store.snapshotsDir, saved.id, '0.jpeg'), 'utf8'), 'original image bytes')
 })
 

@@ -16,6 +16,7 @@ import HistoryPage from '@/pages/HistoryPage'
 import MoodboardGeneration from '@/components/MoodboardGeneration'
 import MoodboardPage from '@/pages/MoodboardPage'
 import { copyText } from '@/lib/clipboard'
+import { useLibraryStatus } from '@/lib/useLibraryStatus'
 
 const activeUploadJobKey = 'visual-library-active-upload-job'
 const uploadStartedEvent = 'visual-library-upload-started'
@@ -35,6 +36,7 @@ type Photo = {
 type PhotoSearchResult = Photo & {
   score: number
   selectionReason?: string
+  matchType?: 'strong' | 'partial'
 }
 
 type SearchResponse = {
@@ -53,6 +55,7 @@ type SearchDebug = {
     results: number
   }>
   candidatePhotoCount: number
+  additionalLibraryPhotoCount?: number
   visuallyReviewedPhotoCount?: number
   visualReviewBatchCount?: number
   selectedPhotoCount: number
@@ -655,10 +658,40 @@ function ReferenceCollage() {
   )
 }
 
+function SearchReferenceCard({ photo }: { photo: PhotoSearchResult }) {
+  const partial = photo.matchType === 'partial'
+  return (
+    <article className="glass-surface frosted-surface overflow-hidden rounded-2xl">
+      <img alt={photo.name ?? 'Selected visual reference'} className="aspect-[4/3] w-full object-cover" src={`${apiBaseUrl}${photo.url}`} />
+      <div className="space-y-4 p-5">
+        <h3 className="headline-h3 line-clamp-2">{photo.name ?? 'Untitled reference'}</h3>
+        {partial ? <p className="text-xs font-medium uppercase tracking-wider text-amber-200">Partial match</p> : null}
+        {photo.selectionReason ? (
+          <div className={`rounded-lg border p-3 ${partial ? 'border-amber-300/20 bg-amber-300/5' : 'border-[#85B9F1]/20 bg-[#85B9F1]/5'}`}>
+            <p className={`text-xs font-medium uppercase tracking-wider ${partial ? 'text-amber-200' : 'text-[#85B9F1]'}`}>
+              {partial ? 'What matches and what’s missing' : 'Why it was selected'}
+            </p>
+            <p className="mt-1 text-sm leading-6 text-neutral-300">{photo.selectionReason}</p>
+          </div>
+        ) : null}
+        <div className="flex flex-wrap gap-2">{photo.keywords.map((keyword) => (
+          <span className="rounded-full bg-[#85B9F1]/10 px-2.5 py-1 text-xs font-medium text-[#C2DCF8]" key={keyword}>{keyword}</span>
+        ))}</div>
+      </div>
+    </article>
+  )
+}
+
 function SearchPage() {
+  const library = useLibraryStatus()
   const fromHistory = new URL(window.location.href).searchParams.get('from') === 'history'
+  const [resultsView, setResultsView] = useState<'references' | 'moodboards'>(() =>
+    new URL(window.location.href).searchParams.get('view') === 'moodboards' ? 'moodboards' : 'references')
   const [prompt, setPrompt] = useState('')
   const [results, setResults] = useState<PhotoSearchResult[]>([])
+  const strongReferences = results.filter((photo) => photo.matchType !== 'partial')
+  const partialReferences = results.filter((photo) => photo.matchType === 'partial')
+  const hasMatchClassification = results.length > 0 && results.every((photo) => photo.matchType !== undefined)
   const [keywordsUsed, setKeywordsUsed] = useState<string[]>([])
   const [searchDebug, setSearchDebug] = useState<SearchDebug | null>(null)
   const [hasSearched, setHasSearched] = useState(false)
@@ -744,6 +777,13 @@ function SearchPage() {
   async function searchPhotos(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
+    if (!library.canSearch) {
+      notify('error', library.error || (library.status
+        ? `Add at least ${library.status.minimumReferences} references to your library before searching.`
+        : 'Please wait while we check your reference library.'))
+      return
+    }
+
     if (!prompt.trim()) {
       notify('error', 'Type a prompt before searching.')
       setMessage('')
@@ -760,6 +800,7 @@ function SearchPage() {
 
     setIsSearching(true)
     setIsRestoringSearch(false)
+    setResultsView('references')
     setSavedSearchId(null)
     setLoadingStep(0)
     setMessage('')
@@ -779,7 +820,8 @@ function SearchPage() {
       })
 
       if (!response.ok) {
-        const data = (await response.json().catch(() => null)) as { error?: string } | null
+        const data = (await response.json().catch(() => null)) as { error?: string; minimumReferences?: number } | null
+        if (data?.minimumReferences) library.refresh()
         throw new Error(data?.error ?? 'Could not search photos')
       }
 
@@ -796,6 +838,7 @@ function SearchPage() {
       if (data.id) {
         const url = new URL(window.location.href)
         url.searchParams.set('search', data.id)
+        url.searchParams.delete('view')
         window.history.replaceState(null, '', url)
       }
     } catch (error) {
@@ -838,6 +881,15 @@ function SearchPage() {
     setIsRestoringSearch(false)
     const url = new URL(window.location.href)
     url.searchParams.delete('search')
+    url.searchParams.delete('view')
+    window.history.replaceState(null, '', url)
+  }
+
+  function switchResultsView(view: 'references' | 'moodboards') {
+    setResultsView(view)
+    const url = new URL(window.location.href)
+    if (view === 'moodboards') url.searchParams.set('view', view)
+    else url.searchParams.delete('view')
     window.history.replaceState(null, '', url)
   }
 
@@ -877,6 +929,15 @@ function SearchPage() {
             the best matching references.
           </p>
 
+          {library.error ? <div className="mt-6 rounded-xl border border-white/15 bg-black/20 p-4" role="status">
+            <p className="text-sm text-neutral-300">{library.error}</p>
+            <Button type="button" variant="outline" className="mt-3" onClick={library.refresh}>Try again</Button>
+          </div> : library.status && !library.status.canSearch ? <div className="mt-6 rounded-xl border border-[#85B9F1]/30 bg-[#85B9F1]/10 p-5" role="status">
+            <h2 className="headline-h3">Build your reference library first</h2>
+            <p className="mt-3 text-sm leading-6 text-neutral-300">Add at least {library.status.minimumReferences} references before starting a search. You have {library.status.photoCount} of {library.status.minimumReferences}; add {library.status.minimumReferences - library.status.photoCount} more to get started.</p>
+            <Button asChild variant="outline" className="mt-4"><a href="/admin">Add references</a></Button>
+          </div> : null}
+
           <form
             className="mt-8 flex flex-col gap-3"
             onSubmit={(event) => void searchPhotos(event)}
@@ -913,11 +974,12 @@ function SearchPage() {
             </div>
             <Button
               className="w-40 self-end"
-              disabled={isSearching || !prompt.trim()}
+              disabled={isSearching || !prompt.trim() || !library.canSearch}
               type="submit"
             >
               {isSearching ? 'Searching...' : 'Search references'}
             </Button>
+            {!library.status && !library.error ? <p className="text-sm text-neutral-400" role="status">Checking your reference library…</p> : null}
           </form>
         </section>
       </div>
@@ -1012,6 +1074,24 @@ function SearchPage() {
 
               {!message && results.length > 0 ? (
                 <>
+                  <div role="tablist" aria-label="Search result views" className="mb-8 inline-flex overflow-hidden rounded-md border border-white/15 bg-white/[0.03] backdrop-blur-md">
+                    {(['references', 'moodboards'] as const).map((view) => (
+                      <button key={view} type="button" role="tab" id={`results-${view}-tab`}
+                        aria-controls={`results-${view}-panel`} aria-selected={resultsView === view} tabIndex={resultsView === view ? 0 : -1}
+                        className={`inline-flex h-10 items-center justify-center px-4 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#85B9F1] ${view === 'moodboards' ? 'border-l border-white/15' : ''} ${resultsView === view ? 'bg-[#85B9F1]/15 text-[#C2DCF8]' : 'text-neutral-100 hover:bg-white/[0.08] hover:text-white'}`}
+                        onClick={() => switchResultsView(view)}
+                        onKeyDown={(event) => {
+                          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+                          event.preventDefault()
+                          const next = event.key === 'Home' ? 'references' : event.key === 'End' ? 'moodboards' : view === 'references' ? 'moodboards' : 'references'
+                          switchResultsView(next)
+                          event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(`#results-${next}-tab`)?.focus()
+                        }}>
+                        {view === 'references' ? 'References' : 'Moodboards'}
+                      </button>
+                    ))}
+                  </div>
+                  <div role="tabpanel" id="results-references-panel" aria-labelledby="results-references-tab" hidden={resultsView !== 'references'} tabIndex={0} className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#85B9F1]">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                     <div>
                       <p className="text-sm font-medium uppercase tracking-[0.25em] text-[#85B9F1]">
@@ -1022,51 +1102,26 @@ function SearchPage() {
                       </h2>
                     </div>
                     <p className="text-sm text-neutral-400">
-                      {results.length} selected · {searchDebug?.visuallyReviewedPhotoCount ?? 0} visually reviewed
+                      {results.length} selected{partialReferences.length ? ` · ${partialReferences.length} partial` : ''} · {searchDebug?.visuallyReviewedPhotoCount ?? 0} visually reviewed
                     </p>
                   </div>
 
-                  <div className="mt-8 grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-                    {results.map((photo) => (
-                      <article
-                        className="glass-surface frosted-surface overflow-hidden rounded-2xl"
-                        key={photo.id}
-                      >
-                        <img
-                          alt={photo.name ?? 'Selected visual reference'}
-                          className="aspect-[4/3] w-full object-cover"
-                          src={`${apiBaseUrl}${photo.url}`}
-                        />
-                        <div className="space-y-4 p-5">
-                          <h3 className="headline-h3 line-clamp-2">
-                            {photo.name ?? 'Untitled reference'}
-                          </h3>
-                          {photo.selectionReason ? (
-                            <div className="rounded-lg border border-[#85B9F1]/20 bg-[#85B9F1]/5 p-3">
-                              <p className="text-xs font-medium uppercase tracking-wider text-[#85B9F1]">
-                                Why it was selected
-                              </p>
-                              <p className="mt-1 text-sm leading-6 text-neutral-300">
-                                {photo.selectionReason}
-                              </p>
-                            </div>
-                          ) : null}
-                          <div className="flex flex-wrap gap-2">
-                            {photo.keywords.map((keyword) => (
-                              <span
-                                className="rounded-full bg-[#85B9F1]/10 px-2.5 py-1 text-xs font-medium text-[#C2DCF8]"
-                                key={keyword}
-                              >
-                                {keyword}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      </article>
-                    ))}
-                  </div>
-
-                  {savedSearchId ? <MoodboardGeneration key={savedSearchId} searchId={savedSearchId} /> : null}
+                   {strongReferences.length ? <section className="mt-8" aria-label={hasMatchClassification ? 'Strong matches' : 'Selected references'}>
+                     {hasMatchClassification ? <h3 className="headline-h3 mb-5">Strong matches · {strongReferences.length}</h3> : null}
+                     <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+                       {strongReferences.map((photo) => <SearchReferenceCard key={photo.id} photo={photo} />)}
+                     </div>
+                   </section> : null}
+                   {partialReferences.length ? <section className="mt-10 border-t border-amber-300/20 pt-8" aria-labelledby="partial-matches-title">
+                     <h3 className="headline-h3 text-amber-200" id="partial-matches-title">Partial matches · {partialReferences.length}</h3>
+                     <p className="mb-6 mt-3 max-w-3xl text-sm leading-6 text-neutral-300">
+                       {strongReferences.length === 0 ? 'No strong matches were found. ' : 'There weren’t enough strong matches to complete the six-reference selection. '}
+                       These references match only part of your brief. Each explanation identifies what is useful and which requirements are missing.
+                     </p>
+                     <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+                       {partialReferences.map((photo) => <SearchReferenceCard key={photo.id} photo={photo} />)}
+                     </div>
+                   </section> : null}
 
                   <details className="glass-surface mt-8 rounded-xl p-4">
                     <summary className="cursor-pointer text-sm font-medium text-neutral-300">
@@ -1084,6 +1139,9 @@ function SearchPage() {
                             {searchDebug.visuallyReviewedPhotoCount ?? 0} images in{' '}
                             {searchDebug.visualReviewBatchCount ?? 0} comparison batches
                           </p>
+                          {searchDebug.additionalLibraryPhotoCount ? <p>
+                            Included {searchDebug.additionalLibraryPhotoCount} additional library references for visual review to meet the six-reference minimum.
+                          </p> : null}
                           <p>
                             Timing: search {(searchDebug.timingsMs.search / 1000).toFixed(1)}s · selection{' '}
                             {(searchDebug.timingsMs.selection / 1000).toFixed(1)}s · total{' '}
@@ -1098,6 +1156,10 @@ function SearchPage() {
                       ) : null}
                     </div>
                   </details>
+                  </div>
+                  <div role="tabpanel" id="results-moodboards-panel" aria-labelledby="results-moodboards-tab" hidden={resultsView !== 'moodboards'} tabIndex={0} className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#85B9F1]">
+                    {savedSearchId ? <MoodboardGeneration key={savedSearchId} searchId={savedSearchId} /> : null}
+                  </div>
                 </>
               ) : null}
             </div>

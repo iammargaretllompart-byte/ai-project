@@ -28,7 +28,7 @@ export function createMoodboardGenerator(snapshotsDir: string, model: (id: strin
       const extracted = await extractColours(imagePath)
       colours.push({ photoId: photo.id, colours: extracted })
       const image = await sharp(imagePath).rotate().resize(1200, 1200, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 85 }).toBuffer()
-      content.push({ type: 'text', text: JSON.stringify({ photoId: photo.id, title: photo.name, keywords: photo.keywords, selectionReason: photo.selectionReason, extractedColours: extracted }) })
+      content.push({ type: 'text', text: JSON.stringify({ photoId: photo.id, title: photo.name, keywords: photo.keywords, matchType: photo.matchType, selectionReason: photo.selectionReason, extractedColours: extracted }) })
       content.push({ type: 'image', image, mediaType: 'image/jpeg' })
     }
 
@@ -45,7 +45,6 @@ Use ONLY the supplied returned reference images. Do not invent references or req
 Grounded: follow the reference compositions, mood, colours, and familiar typography closely. At least three Grounded palette colours should be sampled from or closely refined from the extracted colours. Exploratory: make justified creative steps in type, colour, and composition. Bold: an adventurous, high-contrast design interpretation that still visibly connects to the same references and brief. Explain each creative step. Distinct names, font pairings, and palettes are required.
 Choose Google Fonts ONLY from this catalogue (family and supported weights): ${JSON.stringify(googleFonts)}. Explain the pairing and how its risk matches the direction. Do not return CSS, HTML, URLs, or executable code; return plain editorial copy and structured design values.
 Each palette has exactly one background, surface, text, primary, and accent colour, in six-digit hex. Attach a sourcePhotoId from that direction's references and an evidence-based refinement rationale to each. Background and surface must both give text contrast of at least 4.5:1; use light neutral surfaces with dark text or dark surfaces with light text. Primary and accent may be more creative, but always justify their origin.
-Choose ONE sampleFormat for the entire set based on the brief: landing-page for website projects, mobile-app for app or dashboard projects, editorial for publication layouts, brand-board for brand identity or other visual projects. All three samples use the same format for comparison. Provide a format rationale and realistic project-specific sample copy: eyebrow, headline, description, actionLabel, and one to three label/value items. The samples should demonstrate each direction, not describe the moodboard tool itself.
 Keep all rationale concise, useful, specific, and written for a designer. ${feedback}`,
         messages: [{ role: 'user', content }],
         tools: {
