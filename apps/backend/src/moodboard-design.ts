@@ -31,7 +31,8 @@ export const hexColour = z.string().regex(/^#[0-9a-fA-F]{6}$/).transform((value)
 export const designSchema = z.object({
   schemaVersion: z.literal(2),
   axis: z.object({ from: z.string().trim().min(1).max(120), to: z.string().trim().min(1).max(120), explanation: text }),
-  specimen: z.object({ headline: z.string().trim().min(1).max(120), paragraph: z.string().trim().min(1).max(400) }),
+  // Retained for older output; the renderer now uses the fixed AaBbCc specimen.
+  specimen: z.object({ headline: z.string().trim().min(1).max(120), paragraph: z.string().trim().min(1).max(400) }).optional(),
   referenceAssessment: z.object({ coverage: z.enum(['supported', 'approximate']), explanation: text }),
   excludedReferences: z.array(z.object({ photoId: z.string(), reason: text })).max(100),
   directions: z.array(z.object({

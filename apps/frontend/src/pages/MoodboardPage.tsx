@@ -143,11 +143,6 @@ export default function MoodboardPage({ setId }: { setId: string }) {
   }
 
   const backUrl = data ? `/search?search=${data.searchId}&from=history&view=moodboards` : '/history'
-  // Historical sets keep their saved content, with one shared comparison specimen.
-  const specimen = data?.design?.specimen ?? {
-    headline: 'A new perspective',
-    paragraph: data?.search.prompt ?? 'A visual direction shaped by your project brief.',
-  }
   return (
     <main className="app-canvas min-h-screen pb-16 text-white">
       <div className="page-container">
@@ -184,11 +179,6 @@ export default function MoodboardPage({ setId }: { setId: string }) {
             <p className="mt-4 leading-7 text-red-200">{data.error}</p>
             {data.stage === 'More relevant references needed' ? <div className="mt-5 flex flex-wrap gap-3"><Button asChild variant="outline"><a href="/admin">Add references</a></Button><Button asChild variant="outline"><a href="/search">Start a new search</a></Button></div> : null}
           </section> : data.design ? <>
-            {data.design.axis ? <section className="mt-10 border-l-2 border-[#85B9F1]/50 pl-5" aria-labelledby="creative-axis-title">
-              <h2 id="creative-axis-title" className="text-xs font-medium uppercase tracking-[0.2em] text-[#85B9F1]">Shared creative axis</h2>
-              <p className="mt-3 text-xl font-medium sm:text-2xl">{data.design.axis.from} <span aria-label="to" className="mx-2 text-neutral-500">↔</span> {data.design.axis.to}</p>
-              <p className="mt-3 max-w-4xl text-sm leading-7 text-neutral-300">{data.design.axis.explanation}</p>
-            </section> : null}
             {data.design.referenceAssessment?.coverage === 'approximate' ? <section className="mt-6 rounded-xl border border-amber-200/20 bg-amber-200/5 p-5" role="note" aria-label="Approximate interpretation">
               <h2 className="text-sm font-medium text-amber-200">Approximate interpretation</h2><p className="mt-2 text-sm leading-6 text-neutral-300">{data.design.referenceAssessment.explanation}</p>
             </section> : null}
@@ -204,26 +194,27 @@ export default function MoodboardPage({ setId }: { setId: string }) {
               {data.design.directions.map((direction, index) => {
                 const photos = direction.references.map((reference) => data.search.photos.find((photo) => photo.id === reference.photoId)!).filter(Boolean)
                 return <section key={direction.risk} id={direction.risk.toLowerCase()} aria-labelledby={`${direction.risk}-title`} className="moodboard-direction scroll-mt-6 border-t border-white/15 pt-8 sm:pt-10">
-                  <header className="mb-8"><p className="text-xs uppercase tracking-[0.2em] text-[#85B9F1]">0{index + 1} · {direction.risk}</p>
-                    <h2 id={`${direction.risk}-title`} className="headline-h1 mt-3">{direction.title}</h2>
+                  <div className="moodboard-direction-layout">
+                  <div className="moodboard-direction-info">
+                  <header className="mb-6"><p className="text-xs uppercase tracking-[0.2em] text-[#85B9F1]">0{index + 1} · {direction.risk}</p>
+                    <h2 id={`${direction.risk}-title`} className="headline-h3 mt-3">{direction.title}</h2>
                     {direction.descriptors ? <p className="mt-3 text-sm font-medium tracking-wide text-neutral-400">{direction.descriptors.join(' · ')}</p> : null}
-                    <p className="mt-4 max-w-4xl leading-7 text-neutral-300">{direction.summary}</p>
+                    <p className="mt-4 text-sm leading-7 text-neutral-300">{direction.summary}</p>
                     {direction.chooseThisIf ? <p className="mt-4 max-w-4xl text-sm leading-6 text-neutral-400"><span className="font-medium text-neutral-200">Choose this if… </span>{direction.chooseThisIf}</p> : null}
                   </header>
-                  <MoodboardDirectionBoard direction={direction} photos={photos} specimen={specimen} />
-                  <div className="mt-7 grid items-start gap-8 lg:grid-cols-3">
-                    <section><h3 className="text-sm font-medium text-neutral-100">The direction</h3>
+                  <div className="space-y-6">
+                    <details><summary className="cursor-pointer text-sm font-medium text-neutral-100">The direction</summary>
                       <p className="mt-3 text-sm leading-7 text-neutral-400">{direction.rationale}</p>
-                      {direction.axisPosition ? <p className="mt-3 text-sm leading-7 text-neutral-400"><span className="text-neutral-200">Along the axis: </span>{direction.axisPosition}</p> : null}
                       {direction.visualApproach ? <details className="mt-4 text-sm leading-7 text-neutral-400"><summary className="cursor-pointer text-neutral-200">Visual approach</summary>
                         {Object.entries(direction.visualApproach).map(([label, guidance]) => <p key={label} className="mt-3"><span className="capitalize text-neutral-200">{label}: </span>{guidance}</p>)}
                       </details> : null}
-                    </section>
+                    </details>
                     <section><h3 className="text-sm font-medium text-neutral-100">Typography pairing</h3>
                       <p className="mt-3 text-sm leading-7 text-neutral-300">{direction.typography.heading.family} · {direction.typography.heading.weight} <span className="text-neutral-500">/ Display</span><br />{direction.typography.body.family} · {direction.typography.body.weight} <span className="text-neutral-500">/ Body</span></p>
-                      <p className="mt-3 text-sm leading-7 text-neutral-400">{direction.typography.rationale}</p>
+                      <details className="mt-3 text-sm leading-7 text-neutral-400"><summary className="cursor-pointer text-neutral-200">Why this pairing</summary><p className="mt-2">{direction.typography.rationale}</p></details>
                     </section>
                     <section><h3 className="text-sm font-medium text-neutral-100">Colour choices</h3>
+                      <ul className="mt-3 space-y-2 text-xs text-neutral-300">{direction.palette.map(colour => <li key={colour.role} className="flex items-center gap-2"><span aria-hidden="true" className="h-2.5 w-2.5 shrink-0 rounded-full border border-white/25" style={{ backgroundColor: colour.hex }} /><span><span className="capitalize">{colour.role}</span> · {colour.hex}</span></li>)}</ul>
                       {direction.paletteUsage ? <p className="mt-3 text-sm leading-7 text-neutral-400">{direction.paletteUsage}</p> : null}
                       <details className="mt-3 text-sm leading-7 text-neutral-400"><summary className="cursor-pointer text-neutral-200">Palette details and origins</summary>
                         {direction.palette.map((colour) => <div key={colour.role} className="mt-4">
@@ -242,6 +233,9 @@ export default function MoodboardPage({ setId }: { setId: string }) {
                     })}
                   </details>
                   <a href="#moodboard-page-title" className="mt-6 inline-block text-sm text-neutral-400 hover:text-white">Back to overview</a>
+                  </div>
+                  <MoodboardDirectionBoard direction={direction} photos={photos} />
+                  </div>
                 </section>
               })}
             </div>

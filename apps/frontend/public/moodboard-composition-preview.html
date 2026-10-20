@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Moodboard composition comparison</title>
+  <link id="preview-fonts" rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@300&family=Inter:wght@400;500;600&display=swap" />
+  <style>
+    * { box-sizing: border-box; }
+    :root { color-scheme: dark; font-family: Inter, sans-serif; color: #f5f5f5; background: #090909; }
+    body { margin: 0; min-height: 100vh; background: radial-gradient(ellipse at 5% 90%, #93222426, transparent 65%), radial-gradient(ellipse at 55% 110%, #85b9f126, transparent 65%), radial-gradient(ellipse at 100% 95%, #ca830026, transparent 65%); background-attachment: fixed; }
+    button, a { -webkit-tap-highlight-color: transparent; }
+    button { font: inherit; cursor: pointer; }
+    button:focus-visible, a:focus-visible { outline: 2px solid #85b9f1; outline-offset: 4px; }
+    a { color: #c2dcf8; text-decoration: none; }
+    a:hover { color: white; }
+    main { max-width: 1920px; margin: auto; padding: 0 24px 64px; }
+    @media (min-width: 1024px) { main { padding-inline: 64px; } }
+    nav { min-height: 73px; display: flex; align-items: center; border-bottom: 1px solid #ffffff1a; font-size: 13px; gap: 12px; }
+    nav span { color: #737373; }
+    h1, h2 { font-family: 'Crimson Pro', Georgia, serif; font-weight: 300; margin: 0; }
+    header { padding: 40px 0 26px; }
+    .eyebrow { font-size: 11px; font-weight: 500; letter-spacing: .16em; text-transform: uppercase; color: #85b9f1; }
+    h1 { margin-top: 12px; font-size: clamp(34px, 4vw, 52px); letter-spacing: -.025em; }
+    .intro { max-width: 800px; margin: 16px 0 0; font-size: 14px; line-height: 1.8; color: #b6b6b6; }
+    .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 18px; margin: 24px 0 32px; }
+    .switch { display: inline-flex; overflow: hidden; border: 1px solid #ffffff26; border-radius: 6px; background: #ffffff08; backdrop-filter: blur(12px); }
+    .switch button { padding: 11px 15px; color: #d4d4d4; font-size: 13px; border: 0; background: transparent; }
+    .switch button + button { border-left: 1px solid #ffffff26; }
+    .switch button[aria-pressed="true"] { color: #c2dcf8; background: #85b9f126; }
+    .switch button:hover { background: #ffffff14; }
+    .toolbar > p { color: #8f8f8f; font-size: 12px; margin: 0; }
+    .comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 40px 24px; }
+    article { min-width: 0; }
+    .direction-layout { display: grid; grid-template-columns: minmax(180px, 24%) minmax(0, 1fr); gap: 28px; align-items: center; }
+    .direction-info { min-width: 0; }
+    .option-label { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+    .option-label strong { color: #c2dcf8; font-size: 12px; font-weight: 500; }
+    .option-label span { color: #8f8f8f; font-size: 12px; }
+    .direction-header { margin: 0 0 20px; }
+    .direction-header .eyebrow { font-size: 10px; }
+    h2 { margin-top: 8px; font-size: 31px; }
+    .descriptors { color: #8f8f8f; font-size: 11px; line-height: 1.7; margin: 7px 0 0; }
+    /* Match the application's frosted reference-card surface. The composition is transparent. */
+    .board-card { border-radius: 16px; border: 1px solid #ffffff26; padding: clamp(8px, .8vw, 14px); background: #00000033; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='grain'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Cpath fill='%23fff' opacity='.055' filter='url(%23grain)' d='M0 0h160v160H0z'/%3E%3C/svg%3E"), linear-gradient(135deg, #ffffff0f, transparent 60%); backdrop-filter: blur(6px); box-shadow: 0 12px 32px #0003, inset 0 1px #ffffff0d; }
+    .composition { container-type: inline-size; position: relative; width: 100%; aspect-ratio: 1.6; background: transparent; isolation: isolate; }
+    figure { position: absolute; margin: 0; display: flex; align-items: center; justify-content: center; }
+    figure img { width: 100%; height: 100%; object-fit: contain; border-radius: 3px; }
+    .type { position: absolute; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: #f4f1eb; }
+    .type-label, .weight { font-family: Inter, sans-serif; font-size: clamp(9px, 1.1cqw, 17px); line-height: 1.4; margin: 0; }
+    .type-label { font-weight: 500; }
+    .weight { font-weight: 400; color: #dedbd5; }
+    .specimen { font-size: 5.5cqw; line-height: 1.15; margin: 1.5cqw 0; white-space: nowrap; }
+    .swatch { position: absolute; width: 7%; aspect-ratio: 1; border-radius: 50%; transform: translate(-50%, -50%); z-index: 2; border: 1px solid #ffffff45; visibility: hidden; }
+    .swatch.anchored { visibility: visible; }
+    .ref-1 { left: 3%; top: 6%; width: 30%; height: 49%; }
+    .ref-2 { left: 36%; top: 12%; width: 31%; height: 76%; }
+    .ref-3 { left: 71%; top: 47%; width: 26%; height: 43%; }
+    .display-type { left: 3%; top: 64%; width: 30%; height: 29%; }
+    .body-type { left: 71%; top: 8%; width: 26%; height: 29%; }
+    .swatch-1 { left: 33%; top: 9%; }
+    .swatch-2 { left: 5%; top: 56%; }
+    .swatch-3 { left: 66%; top: 43%; }
+    .swatch-4 { left: 49%; top: 91%; }
+    .swatch-5 { left: 93%; top: 88%; }
+    /* Alternative B: a common vocabulary, but a different composition per direction. */
+    .ribbon .ref-1 { left: 2%; top: 5%; width: 32%; height: 57%; }
+    .ribbon .ref-2 { left: 36%; top: 25%; width: 30%; height: 70%; }
+    .ribbon .ref-3 { left: 69%; top: 30%; width: 29%; height: 62%; }
+    .ribbon .display-type { left: 2%; top: 64%; width: 32%; height: 26%; }
+    .ribbon .body-type { left: 69%; top: 5%; width: 29%; height: 23%; }
+    .ribbon .swatch-1 { left: 31%; top: 13%; }
+    .ribbon .swatch-2 { left: 6%; top: 58%; }
+    .ribbon .swatch-3 { left: 65%; top: 42%; }
+    .ribbon .swatch-4 { left: 92%; top: 60%; }
+    .ribbon .swatch-5 { left: 51%; top: 93%; }
+    .offset .ref-1 { left: 2%; top: 4%; width: 33%; height: 56%; }
+    .offset .ref-2 { left: 37%; top: 7%; width: 30%; height: 64%; }
+    .offset .ref-3 { left: 70%; top: 41%; width: 28%; height: 54%; }
+    .offset .display-type { left: 2%; top: 63%; width: 33%; height: 26%; }
+    .offset .body-type { left: 70%; top: 13%; width: 28%; height: 24%; }
+    .offset .swatch-1 { left: 33%; top: 12%; }
+    .offset .swatch-2 { left: 5%; top: 57%; }
+    .offset .swatch-3 { left: 67%; top: 50%; }
+    .offset .swatch-4 { left: 48%; top: 74%; }
+    .offset .swatch-5 { left: 94%; top: 92%; }
+    .inverted .ref-1 { left: 2%; top: 36%; width: 31%; height: 59%; }
+    .inverted .ref-2 { left: 36%; top: 7%; width: 31%; height: 82%; }
+    .inverted .ref-3 { left: 70%; top: 41%; width: 28%; height: 54%; }
+    .inverted .display-type { left: 2%; top: 7%; width: 31%; height: 26%; }
+    .inverted .body-type { left: 70%; top: 12%; width: 28%; height: 25%; }
+    .inverted .swatch-1 { left: 34%; top: 12%; }
+    .inverted .swatch-2 { left: 6%; top: 46%; }
+    .inverted .swatch-3 { left: 66%; top: 71%; }
+    .inverted .swatch-4 { left: 49%; top: 91%; }
+    .inverted .swatch-5 { left: 93%; top: 42%; }
+    .details { padding: 14px 2px 0; font-size: 11px; line-height: 1.8; color: #999; }
+    .details p { margin: 0; }
+    .details .detail-label { margin: 16px 0 4px; color: #d4d4d4; font-size: 10px; font-weight: 500; letter-spacing: .1em; text-transform: uppercase; }
+    .direction-info .details { padding: 0; }
+    .direction-info .palette-key { flex-direction: column; gap: 5px; }
+    .palette-key { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 7px; }
+    .palette-key span { white-space: nowrap; }
+    .palette-key i { display: inline-block; width: 8px; height: 8px; margin-right: 5px; border-radius: 50%; border: 1px solid #ffffff40; }
+    [data-mode="a"] .option-b, [data-mode="b"] .option-a { display: none; }
+    [data-mode="a"] .comparison, [data-mode="b"] .comparison { grid-template-columns: minmax(0, 1fr); width: 100%; gap: 48px; }
+    .status { color: #b6b6b6; font-size: 14px; line-height: 1.8; }
+    .status button { border: 1px solid #ffffff26; border-radius: 6px; background: #ffffff0d; color: white; padding: 10px 16px; }
+    footer { margin-top: 36px; color: #888; font-size: 12px; line-height: 1.8; }
+    @media (max-width: 1000px) { .comparison { grid-template-columns: minmax(0, 1fr); gap: 32px; } }
+    @media (min-width: 1001px) { [data-mode="compare"] .direction-layout { grid-template-columns: minmax(135px, 27%) minmax(0, 1fr); gap: 16px; } }
+    @media (max-width: 680px) {
+      .direction-layout { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+      .direction-info .palette-key { flex-direction: row; flex-wrap: wrap; gap: 5px 14px; }
+    }
+    @media (max-width: 480px) {
+      .switch { width: 100%; }
+      .switch button { flex: 1; padding: 11px 8px; font-size: 11px; }
+      .type-label, .weight { font-size: 8px; }
+      .specimen { font-size: 5.3cqw; }
+      .board-card { padding: 8px; }
+    }
+  </style>
+</head>
+<body>
+  <main data-mode="b">
+    <nav><a href="/history">History</a><span>/</span><span>Composition preview</span></nav>
+    <header>
+      <div class="eyebrow">Visual review · varied compositions</div>
+      <h1>A little more breathing room.</h1>
+      <p class="intro">The varied layouts now use a middle-ground spacing: references stay prominent, with a little more separation between them. Every colour circle stays attached to a photo edge. Compare with A to revisit the original, more spacious arrangement.</p>
+    </header>
+    <div class="toolbar">
+      <div class="switch" role="group" aria-label="Comparison view">
+        <button type="button" aria-pressed="false" data-view="compare">Compare A / B</button>
+        <button type="button" aria-pressed="false" data-view="a">A · Full width</button>
+        <button type="button" aria-pressed="true" data-view="b">B · Updated varied</button>
+      </div>
+      <p>Same saved content in both options · no new AI generation</p>
+    </div>
+    <div class="status" role="status">Opening saved references…</div>
+    <div class="comparison"></div>
+    <footer>Composition study for review. The typography labels and weights use Inter; only AaBbCc uses the suggested typeface. Colour details stay outside the visual boards.</footer>
+  </main>
+  <script type="module">
+    const api = 'http://localhost:4000';
+    const setId = '36265e5d-7d9f-416f-b2d0-5d89453f925c';
+    const main = document.querySelector('main');
+    const comparison = document.querySelector('.comparison');
+    const status = document.querySelector('.status');
+    const roleOrder = ['background', 'surface', 'text', 'primary', 'accent'];
+    const resizeObserver = new ResizeObserver(entries => entries.forEach(entry => positionSwatches(entry.target)));
+    document.querySelectorAll('[data-view]').forEach(button => button.addEventListener('click', () => {
+      main.dataset.mode = button.dataset.view;
+      document.querySelectorAll('[data-view]').forEach(control => control.setAttribute('aria-pressed', String(control === button)));
+    }));
+    function element(tag, className, text) {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      if (text !== undefined) node.textContent = text;
+      return node;
+    }
+    function typeSample(label, font, className) {
+      const group = element('div', `type ${className}`);
+      group.append(element('p', 'type-label', label));
+      const specimen = element('p', 'specimen', 'AaBbCc');
+      specimen.style.fontFamily = `"${font.family}", serif`;
+      specimen.style.fontWeight = font.weight;
+      group.append(specimen, element('p', 'weight', `Weight ${font.weight}`));
+      return group;
+    }
+    function positionSwatches(board) {
+      const bounds = board.getBoundingClientRect();
+      if (!bounds.width) return;
+      const images = [...board.querySelectorAll('figure img')];
+      if (images.some(image => !image.naturalWidth)) return;
+      // object-fit: contain can leave empty space inside a figure. Anchor to the
+      // actual visible image bounds, not that empty enclosing box.
+      const photos = images.map(image => {
+        const box = image.getBoundingClientRect();
+        const scale = Math.min(box.width / image.naturalWidth, box.height / image.naturalHeight);
+        const width = image.naturalWidth * scale, height = image.naturalHeight * scale;
+        return { left: box.left - bounds.left + (box.width - width) / 2, top: box.top - bounds.top + (box.height - height) / 2, width, height };
+      });
+      const obstacles = [...board.querySelectorAll('.type')].map(type => {
+        const box = type.getBoundingClientRect();
+        return { left: box.left - bounds.left, top: box.top - bounds.top, width: box.width, height: box.height };
+      });
+      const overlap = (a, b) => Math.max(0, Math.min(a.left + a.width, b.left + b.width) - Math.max(a.left, b.left)) * Math.max(0, Math.min(a.top + a.height, b.top + b.height) - Math.max(a.top, b.top));
+      const anchors = [[.96, .04], [.04, .96], [1, .48], [.96, .96], [.5, 0], [0, .5], [.5, 1], [.04, .04]];
+      const placements = [[0, 0], [0, 1], [1, 2], [1, 1], [2, 3]];
+      board.querySelectorAll('.swatch').forEach((swatch, index) => {
+        const [photoIndex, preferred] = placements[index];
+        const photo = photos[photoIndex];
+        const diameter = bounds.width * .07, radius = diameter / 2;
+        const candidates = anchors.map(([x, y], anchorIndex) => {
+          const left = Math.max(radius, Math.min(bounds.width - radius, photo.left + photo.width * x));
+          const top = Math.max(radius, Math.min(bounds.height - radius, photo.top + photo.height * y));
+          const box = { left: left - radius, top: top - radius, width: diameter, height: diameter };
+          return { left, top, box, score: obstacles.reduce((score, obstacle) => score + overlap(box, obstacle), 0) + (anchorIndex === preferred ? 0 : 1) };
+        });
+        const chosen = candidates.sort((a, b) => a.score - b.score)[0];
+        swatch.style.left = `${chosen.left}px`;
+        swatch.style.top = `${chosen.top}px`;
+        swatch.classList.add('anchored');
+        swatch.dataset.photo = String(photoIndex + 1);
+        obstacles.push(chosen.box);
+      });
+    }
+    function renderBoard(direction, photos, option, index) {
+      const article = element('article', `option-${option.toLowerCase()}`);
+      const optionLabel = element('div', 'option-label');
+      optionLabel.append(element('strong', '', option === 'A' ? 'A · Shared composition family' : 'B · Varied compositions'), element('span', '', option === 'A' ? 'Related arrangement across the set' : ['Horizontal rhythm', 'Offset balance', 'Inverted balance'][index]));
+      const header = element('div', 'direction-header');
+      header.append(element('div', 'eyebrow', `0${index + 1} · ${direction.risk}`), element('h2', '', direction.title));
+      if (direction.descriptors) header.append(element('p', 'descriptors', direction.descriptors.join(' · ')));
+      const card = element('div', 'board-card');
+      const board = element('div', `composition ${option === 'B' ? ['ribbon', 'offset', 'inverted'][index] : ''}`);
+      board.setAttribute('role', 'group');
+      board.setAttribute('aria-label', `${option}: ${direction.title} composition`);
+      photos.forEach((photo, photoIndex) => {
+        const figure = element('figure', `ref-${photoIndex + 1}`);
+        const image = element('img');
+        image.src = `${api}${photo.url}`;
+        image.alt = photo.name ?? photo.originalName;
+        image.addEventListener('load', () => positionSwatches(board));
+        figure.append(image);
+        board.append(figure);
+      });
+      board.append(typeSample('Display font', direction.typography.heading, 'display-type'), typeSample('Body font', direction.typography.body, 'body-type'));
+      const palette = [...direction.palette].sort((a, b) => roleOrder.indexOf(a.role) - roleOrder.indexOf(b.role));
+      palette.forEach((colour, colourIndex) => {
+        const swatch = element('div', `swatch swatch-${colourIndex + 1}`);
+        swatch.style.backgroundColor = colour.hex;
+        swatch.setAttribute('role', 'img');
+        swatch.setAttribute('aria-label', `${colour.role}: ${colour.hex}`);
+        board.append(swatch);
+      });
+      card.append(board);
+      const details = element('div', 'details');
+      details.append(
+        element('p', 'detail-label', 'Typography'),
+        element('p', '', `Display · ${direction.typography.heading.family} ${direction.typography.heading.weight}`),
+        element('p', '', `Body · ${direction.typography.body.family} ${direction.typography.body.weight}`),
+        element('p', 'detail-label', 'Colour palette'),
+      );
+      const key = element('div', 'palette-key');
+      palette.forEach(colour => {
+        const label = element('span');
+        const dot = element('i');
+        dot.style.backgroundColor = colour.hex;
+        dot.setAttribute('aria-hidden', 'true');
+        label.append(dot, document.createTextNode(`${colour.role} ${colour.hex}`));
+        key.append(label);
+      });
+      details.append(key, element('p', 'detail-label', `${photos.length} references`));
+      const info = element('div', 'direction-info');
+      info.append(header, details);
+      const layout = element('div', 'direction-layout');
+      layout.append(info, card);
+      article.append(optionLabel, layout);
+      return article;
+    }
+    async function load() {
+      status.hidden = false;
+      status.textContent = 'Opening saved references…';
+      try {
+        const response = await fetch(`${api}/moodboards/${setId}`);
+        if (!response.ok) throw new Error('Could not open the saved comparison set.');
+        const saved = await response.json();
+        if (!saved.design?.directions || saved.design.directions.length !== 3) throw new Error('This preview needs a saved set with three directions.');
+        const fonts = new Map([['Inter', new Set([400, 500, 600])], ['Crimson Pro', new Set([300])]]);
+        saved.design.directions.forEach(direction => [direction.typography.heading, direction.typography.body].forEach(font => {
+          const weights = fonts.get(font.family) ?? new Set();
+          weights.add(font.weight);
+          fonts.set(font.family, weights);
+        }));
+        document.getElementById('preview-fonts').href = `https://fonts.googleapis.com/css2?${[...fonts].map(([family, weights]) => `family=${encodeURIComponent(family).replace(/%20/g, '+')}:wght@${[...weights].sort((a, b) => a - b).join(';')}`).join('&')}&display=swap`;
+        const fragment = document.createDocumentFragment();
+        saved.design.directions.forEach((direction, index) => {
+          const photos = direction.references.slice(0, 3).map(reference => saved.search.photos.find(photo => photo.id === reference.photoId));
+          if (photos.length < 3 || photos.some(photo => !photo)) throw new Error('A comparison direction is missing its three saved references.');
+          fragment.append(renderBoard(direction, photos, 'A', index), renderBoard(direction, photos, 'B', index));
+        });
+        resizeObserver.disconnect();
+        comparison.replaceChildren(fragment);
+        comparison.querySelectorAll('.composition').forEach(board => { resizeObserver.observe(board); positionSwatches(board); });
+        status.hidden = true;
+      } catch (error) {
+        status.textContent = `${error.message} Check that the local backend is running. `;
+        const retry = element('button', '', 'Try again');
+        retry.type = 'button';
+        retry.addEventListener('click', load);
+        status.append(retry);
+      }
+    }
+    void load();
+  </script>
+</body>
+</html>

@@ -50,7 +50,7 @@ test('requires complete comparison fields and limits reference emphasis', () => 
   assert.throws(() => validateDesign(input, photoIds), /at most one/)
   input.directions[0].references.slice(1).forEach((reference) => { reference.emphasis = 'standard' })
   assert.doesNotThrow(() => validateDesign(input, photoIds))
-  assert.throws(() => validateDesign({ ...input, specimen: undefined }, photoIds))
+  assert.doesNotThrow(() => validateDesign({ ...input, specimen: undefined }, photoIds))
 })
 
 test('explicit brand hex constraints override image sampling only with verifiable brief provenance', () => {
