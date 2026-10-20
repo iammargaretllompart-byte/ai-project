@@ -5,7 +5,8 @@ import path from 'node:path'
 import { test, type TestContext } from 'node:test'
 import { MoodboardWorker } from '../src/moodboard-worker.js'
 import { SearchStore } from '../src/search-store.js'
-import { colourFixture, designFixture } from './moodboard-fixture.js'
+import { createMoodboardGenerator } from '../src/moodboard-generator.js'
+import { colourFixture, designFixture, fixturePhotoIds } from './moodboard-fixture.js'
 
 async function fixture(context: TestContext) {
   const root = await fs.mkdtemp(path.join(tmpdir(), 'moodboard-worker-'))
@@ -14,8 +15,8 @@ async function fixture(context: TestContext) {
   await fs.mkdir(uploads)
   await fs.writeFile(path.join(uploads, 'first.jpeg'), 'snapshot bytes')
   const state = { data, uploads, store: await SearchStore.open(data, uploads), workers: [] as MoodboardWorker[] }
-  const photo = { id: 'photo-1', originalName: 'first.jpeg', filename: 'first.jpeg', url: '/uploads/first.jpeg', keywords: [], score: 1, createdAt: new Date().toISOString() }
-  const search = await state.store.save('Editorial website', { keywords: [], photos: [photo], selectedPhotos: [photo], candidatePhotos: [photo], debug: null })
+  const photos = fixturePhotoIds.map((id) => ({ id, originalName: 'first.jpeg', filename: 'first.jpeg', url: '/uploads/first.jpeg', keywords: [], score: 1, createdAt: new Date().toISOString() }))
+  const search = await state.store.save('Editorial website', { keywords: [], photos, selectedPhotos: photos, candidatePhotos: photos, debug: null })
   context.after(async () => {
     await Promise.all(state.workers.map((worker) => worker.stop()))
     state.store.close()
@@ -86,6 +87,41 @@ test('generation failure is persisted, while a later retry can complete', async 
   await next.idle()
   assert.equal(state.store.moodboards.get(retry.id)?.status, 'ready')
   assert.equal(state.store.moodboards.get(failed.id)?.status, 'failed')
+})
+
+test('a provider timeout has an actionable saved message and preserves earlier ready sets', async (context) => {
+  context.mock.method(console, 'error', () => {})
+  const { state, search } = await fixture(context)
+  const ready = state.store.moodboards.enqueue(search.id)
+  state.store.moodboards.claimNext()
+  state.store.moodboards.complete(ready.id, designFixture(), colourFixture)
+  const failed = state.store.moodboards.enqueue(search.id)
+  const worker = new MoodboardWorker(state.store, async () => { throw new DOMException('Request timeout', 'TimeoutError') })
+  state.workers.push(worker)
+  worker.start()
+  await worker.idle()
+  assert.equal(state.store.moodboards.get(failed.id)?.stage, 'Generation timed out')
+  assert.match(state.store.moodboards.get(failed.id)!.error!, /took too long/)
+  assert.equal(state.store.moodboards.get(failed.id)?.design, null)
+  assert.deepEqual(state.store.moodboards.get(ready.id)?.design, designFixture())
+  assert.ok(state.store.get(search.id))
+})
+
+test('historical searches with fewer than three references fail before image processing or AI calls', async (context) => {
+  context.mock.method(console, 'error', () => {})
+  const { state, search } = await fixture(context)
+  const photos = search.photos.slice(0, 2)
+  const small = await state.store.save('Historical small search', { keywords: [], photos, selectedPhotos: photos, candidatePhotos: photos, debug: null })
+  const set = state.store.moodboards.enqueue(small.id)
+  let calls = 0
+  const worker = new MoodboardWorker(state.store, createMoodboardGenerator(state.store.snapshotsDir, () => { calls++; throw new Error('AI must not be called') }))
+  state.workers.push(worker)
+  worker.start()
+  await worker.idle()
+  assert.equal(calls, 0)
+  assert.equal(state.store.moodboards.get(set.id)?.stage, 'More relevant references needed')
+  assert.match(state.store.moodboards.get(set.id)!.error!, /at least three distinct, relevant references/)
+  assert.equal(state.store.moodboards.get(set.id)?.design, null)
 })
 
 test('deleting a search cancels its running work and prevents late completion from resurrecting it', async (context) => {

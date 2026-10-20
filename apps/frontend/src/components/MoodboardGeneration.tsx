@@ -127,10 +127,13 @@ export default function MoodboardGeneration({ searchId }: { searchId: string }) 
       {detail?.design ? (
         <div className="mt-6">
           <p className="mb-5 text-sm text-neutral-400">Saved direction plan</p>
+          {detail.design.axis ? <p className="mb-5 text-sm text-neutral-300"><span className="text-neutral-500">Shared axis: </span>{detail.design.axis.from} ↔ {detail.design.axis.to}</p> : null}
+          {detail.design.referenceAssessment?.coverage === 'approximate' ? <p className="mb-5 text-sm leading-6 text-amber-200">Approximate interpretation · {detail.design.referenceAssessment.explanation}</p> : null}
           <div className="grid gap-5 lg:grid-cols-3">
             {detail.design.directions.map((direction) => <article key={direction.risk} className="glass-surface frosted-surface rounded-2xl p-5">
               <p className="text-xs font-medium uppercase tracking-wider text-[#85B9F1]">{direction.risk}</p>
               <h3 className="headline-h3 mt-3">{direction.title}</h3>
+              {direction.descriptors ? <p className="mt-3 text-xs leading-6 text-neutral-400">{direction.descriptors.join(' · ')}</p> : null}
               <p className="mt-4 text-sm leading-6 text-neutral-300">{direction.summary}</p>
               <div className="mt-5 grid grid-cols-5 gap-2">{direction.palette.map((colour) => <div key={colour.role}>
                 <div className="h-12 rounded-md border border-white/15" style={{ backgroundColor: colour.hex }} title={`${colour.role}: ${colour.hex}`} />

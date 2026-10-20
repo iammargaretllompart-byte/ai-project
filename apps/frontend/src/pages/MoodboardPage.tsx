@@ -5,6 +5,7 @@ import { apiBaseUrl } from '@/lib/api'
 import { isGenerating, type MoodboardPageData, type MoodboardSummary } from '@/lib/moodboards'
 import { notify } from '@/lib/notifications'
 import { copyText } from '@/lib/clipboard'
+import MoodboardDirectionBoard from '@/components/MoodboardDirectionBoard'
 
 export default function MoodboardPage({ setId }: { setId: string }) {
   const [data, setData] = useState<MoodboardPageData | null>(null)
@@ -142,6 +143,11 @@ export default function MoodboardPage({ setId }: { setId: string }) {
   }
 
   const backUrl = data ? `/search?search=${data.searchId}&from=history&view=moodboards` : '/history'
+  // Historical sets keep their saved content, with one shared comparison specimen.
+  const specimen = data?.design?.specimen ?? {
+    headline: 'A new perspective',
+    paragraph: data?.search.prompt ?? 'A visual direction shaped by your project brief.',
+  }
   return (
     <main className="app-canvas min-h-screen pb-16 text-white">
       <div className="page-container">
@@ -173,57 +179,75 @@ export default function MoodboardPage({ setId }: { setId: string }) {
           {isGenerating(data) ? <section className="glass-surface frosted-surface mt-8 rounded-2xl p-8" role="status">
             <p className="flex items-center gap-3"><LoaderCircle className="h-5 w-5 animate-spin text-[#85B9F1]" />{data.stage}</p>
             <p className="mt-4 text-neutral-400">The three directions are being generated in the background. You can leave and reopen this same link.</p>
-          </section> : data.status === 'failed' ? <p className="glass-surface mt-8 rounded-2xl p-8 text-red-300" role="alert">{data.error}</p> : data.design ? <>
+          </section> : data.status === 'failed' ? <section className="glass-surface mt-8 rounded-2xl p-8" role="alert">
+            <h2 className="headline-h3">{data.stage === 'More relevant references needed' ? 'More relevant references needed' : 'This set couldn’t be generated'}</h2>
+            <p className="mt-4 leading-7 text-red-200">{data.error}</p>
+            {data.stage === 'More relevant references needed' ? <div className="mt-5 flex flex-wrap gap-3"><Button asChild variant="outline"><a href="/admin">Add references</a></Button><Button asChild variant="outline"><a href="/search">Start a new search</a></Button></div> : null}
+          </section> : data.design ? <>
+            {data.design.axis ? <section className="mt-10 border-l-2 border-[#85B9F1]/50 pl-5" aria-labelledby="creative-axis-title">
+              <h2 id="creative-axis-title" className="text-xs font-medium uppercase tracking-[0.2em] text-[#85B9F1]">Shared creative axis</h2>
+              <p className="mt-3 text-xl font-medium sm:text-2xl">{data.design.axis.from} <span aria-label="to" className="mx-2 text-neutral-500">↔</span> {data.design.axis.to}</p>
+              <p className="mt-3 max-w-4xl text-sm leading-7 text-neutral-300">{data.design.axis.explanation}</p>
+            </section> : null}
+            {data.design.referenceAssessment?.coverage === 'approximate' ? <section className="mt-6 rounded-xl border border-amber-200/20 bg-amber-200/5 p-5" role="note" aria-label="Approximate interpretation">
+              <h2 className="text-sm font-medium text-amber-200">Approximate interpretation</h2><p className="mt-2 text-sm leading-6 text-neutral-300">{data.design.referenceAssessment.explanation}</p>
+            </section> : null}
             <nav aria-label="Moodboard directions" className="mt-8 grid gap-4 md:grid-cols-3">
               {data.design.directions.map((direction, index) => <a key={direction.risk} href={`#${direction.risk.toLowerCase()}`} className="glass-surface frosted-surface rounded-2xl p-5 transition-transform hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-[#85B9F1]">
                 <p className="text-xs uppercase tracking-wider text-[#85B9F1]">0{index + 1} · {direction.risk}</p>
                 <h2 className="headline-h3 mt-3">{direction.title}</h2>
+                {direction.descriptors ? <p className="mt-3 text-xs leading-6 text-neutral-400">{direction.descriptors.join(' · ')}</p> : null}
                 <div className="mt-4 flex overflow-hidden rounded-md">{direction.palette.map((colour) => <span key={colour.role} className="h-3 flex-1" style={{ backgroundColor: colour.hex }} />)}</div>
               </a>)}
             </nav>
             <div className="mt-10 space-y-12">
               {data.design.directions.map((direction, index) => {
                 const photos = direction.references.map((reference) => data.search.photos.find((photo) => photo.id === reference.photoId)!).filter(Boolean)
-                return <section key={direction.risk} id={direction.risk.toLowerCase()} aria-labelledby={`${direction.risk}-title`} className="moodboard-direction glass-surface frosted-surface scroll-mt-6 rounded-3xl p-5 sm:p-8">
+                return <section key={direction.risk} id={direction.risk.toLowerCase()} aria-labelledby={`${direction.risk}-title`} className="moodboard-direction scroll-mt-6 border-t border-white/15 pt-8 sm:pt-10">
                   <header className="mb-8"><p className="text-xs uppercase tracking-[0.2em] text-[#85B9F1]">0{index + 1} · {direction.risk}</p>
-                    <h2 id={`${direction.risk}-title`} className="headline-h1 mt-3">{direction.title}</h2><p className="mt-4 max-w-4xl leading-7 text-neutral-300">{direction.summary}</p>
+                    <h2 id={`${direction.risk}-title`} className="headline-h1 mt-3">{direction.title}</h2>
+                    {direction.descriptors ? <p className="mt-3 text-sm font-medium tracking-wide text-neutral-400">{direction.descriptors.join(' · ')}</p> : null}
+                    <p className="mt-4 max-w-4xl leading-7 text-neutral-300">{direction.summary}</p>
+                    {direction.chooseThisIf ? <p className="mt-4 max-w-4xl text-sm leading-6 text-neutral-400"><span className="font-medium text-neutral-200">Choose this if… </span>{direction.chooseThisIf}</p> : null}
                   </header>
-                  <div className="grid items-start gap-8 lg:grid-cols-2">
-                    <div>
-                      <h3 className="headline-h3 mb-4">Reference collage</h3>
-                      <div className="moodboard-collage" data-count={photos.length}>{photos.map((photo) => <figure key={photo.id}>
-                        <img src={`${apiBaseUrl}${photo.url}`} alt={photo.name ?? photo.originalName} loading="lazy" />
-                        <figcaption>{photo.name ?? photo.originalName}</figcaption>
-                      </figure>)}</div>
-                      <p className="mt-5 text-sm leading-7 text-neutral-300">{direction.rationale}</p>
-                      <details className="mt-5 text-sm leading-6 text-neutral-400"><summary className="cursor-pointer text-neutral-300">Why these references</summary>
-                        {direction.references.map((reference) => <div className="mt-4" key={reference.photoId}><p className="font-medium text-neutral-200">{photos.find((photo) => photo.id === reference.photoId)?.name ?? 'Reference'}</p><p className="mt-1">{reference.reason}</p></div>)}
+                  <MoodboardDirectionBoard direction={direction} photos={photos} specimen={specimen} />
+                  <div className="mt-7 grid items-start gap-8 lg:grid-cols-3">
+                    <section><h3 className="text-sm font-medium text-neutral-100">The direction</h3>
+                      <p className="mt-3 text-sm leading-7 text-neutral-400">{direction.rationale}</p>
+                      {direction.axisPosition ? <p className="mt-3 text-sm leading-7 text-neutral-400"><span className="text-neutral-200">Along the axis: </span>{direction.axisPosition}</p> : null}
+                      {direction.visualApproach ? <details className="mt-4 text-sm leading-7 text-neutral-400"><summary className="cursor-pointer text-neutral-200">Visual approach</summary>
+                        {Object.entries(direction.visualApproach).map(([label, guidance]) => <p key={label} className="mt-3"><span className="capitalize text-neutral-200">{label}: </span>{guidance}</p>)}
+                      </details> : null}
+                    </section>
+                    <section><h3 className="text-sm font-medium text-neutral-100">Typography pairing</h3>
+                      <p className="mt-3 text-sm leading-7 text-neutral-300">{direction.typography.heading.family} · {direction.typography.heading.weight} <span className="text-neutral-500">/ Display</span><br />{direction.typography.body.family} · {direction.typography.body.weight} <span className="text-neutral-500">/ Body</span></p>
+                      <p className="mt-3 text-sm leading-7 text-neutral-400">{direction.typography.rationale}</p>
+                    </section>
+                    <section><h3 className="text-sm font-medium text-neutral-100">Colour choices</h3>
+                      {direction.paletteUsage ? <p className="mt-3 text-sm leading-7 text-neutral-400">{direction.paletteUsage}</p> : null}
+                      <details className="mt-3 text-sm leading-7 text-neutral-400"><summary className="cursor-pointer text-neutral-200">Palette details and origins</summary>
+                        {direction.palette.map((colour) => <div key={colour.role} className="mt-4">
+                          <p className="text-neutral-200">{colour.name ? `${colour.name} · ` : ''}<span className="capitalize">{colour.role}</span> · {colour.hex}</p>
+                          <p className="mt-1">{colour.sourceBriefQuote ? `From the brief: “${colour.sourceBriefQuote}”` : `From ${data.search.photos.find((photo) => photo.id === colour.sourcePhotoId)?.name ?? 'saved reference'}`}</p><p className="mt-1">{colour.rationale}</p>
+                        </div>)}
                       </details>
-                    </div>
-                    <div className="space-y-8">
-                      <section><h3 className="headline-h3 mb-4">Typography pairing</h3>
-                        <div className="rounded-2xl border border-white/10 bg-black/20 p-5">
-                          <p className="text-xs text-neutral-500">{direction.typography.heading.family} · {direction.typography.heading.weight}</p>
-                          <p className="mt-3 break-words text-4xl leading-tight sm:text-5xl" style={{ fontFamily: `"${direction.typography.heading.family}", serif`, fontWeight: direction.typography.heading.weight }}>{direction.title}</p>
-                          <p className="mt-6 text-xs text-neutral-500">{direction.typography.body.family} · {direction.typography.body.weight}</p>
-                          <p className="mt-3 text-base leading-7" style={{ fontFamily: `"${direction.typography.body.family}", sans-serif`, fontWeight: direction.typography.body.weight }}>{direction.summary}</p>
-                        </div><p className="mt-4 text-sm leading-6 text-neutral-400">{direction.typography.rationale}</p>
-                      </section>
-                      <section><h3 className="headline-h3 mb-4">Colour palette</h3>
-                        <div className="grid grid-cols-5 gap-2 sm:gap-3">{direction.palette.map((colour) => <div key={colour.role}>
-                          <div className="h-16 rounded-lg border border-white/15 sm:h-20" style={{ backgroundColor: colour.hex }} />
-                          <p className="mt-2 text-[10px] capitalize text-neutral-400 sm:text-xs">{colour.role}</p><p className="mt-1 text-[10px] text-neutral-200 sm:text-xs">{colour.hex}</p>
-                        </div>)}</div>
-                        <details className="mt-5 text-sm leading-6 text-neutral-400"><summary className="cursor-pointer text-neutral-300">Colour origins and refinements</summary>
-                          {direction.palette.map((colour) => <div key={colour.role} className="mt-3"><p className="text-neutral-200"><span className="capitalize">{colour.role}</span> · {data.search.photos.find((photo) => photo.id === colour.sourcePhotoId)?.name ?? 'Saved reference'}</p><p className="mt-1">{colour.rationale}</p></div>)}
-                        </details>
-                      </section>
-                    </div>
+                    </section>
                   </div>
+                  <details className="mt-6 rounded-xl border border-white/10 p-4 text-sm leading-7 text-neutral-400"><summary className="cursor-pointer text-neutral-200">Reference choices · {photos.length} used</summary>
+                    {direction.references.map((reference) => {
+                      const photo = photos.find((photo) => photo.id === reference.photoId)
+                      return <div className="mt-4" key={reference.photoId}><p className="font-medium text-neutral-200">{photo?.name ?? photo?.originalName ?? 'Reference'}{photo?.matchType === 'partial' ? <span className="ml-2 text-xs font-normal text-amber-200">Partial match</span> : null}</p><p className="mt-1">{reference.reason}</p>
+                        {photo?.matchType === 'partial' && photo.selectionReason ? <p className="mt-1 text-xs leading-6 text-neutral-500">Search limitation: {photo.selectionReason}</p> : null}
+                      </div>
+                    })}
+                  </details>
                   <a href="#moodboard-page-title" className="mt-6 inline-block text-sm text-neutral-400 hover:text-white">Back to overview</a>
                 </section>
               })}
             </div>
+            {data.design.excludedReferences?.length ? <details className="glass-surface mt-10 rounded-2xl p-5 text-sm leading-7 text-neutral-400"><summary className="cursor-pointer text-neutral-200">Reference choices · {data.design.excludedReferences.length} not used in this set</summary>
+              {data.design.excludedReferences.map((reference) => <div className="mt-4" key={reference.photoId}><p className="font-medium text-neutral-200">{data.search.photos.find((photo) => photo.id === reference.photoId)?.name ?? 'Saved reference'}</p><p className="mt-1">{reference.reason}</p></div>)}
+            </details> : null}
           </> : null}
         </>}
       </div>

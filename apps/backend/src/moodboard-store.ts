@@ -93,9 +93,9 @@ export class MoodboardStore {
       .run(new Date().toISOString(), JSON.stringify(design), JSON.stringify(colours), id).changes > 0
   }
 
-  fail(id: string, message: string) {
-    this.database.prepare(`UPDATE moodboard_sets SET status = 'failed', stage = 'Generation failed', error = ?,
-      completed_at = ? WHERE id = ? AND status = 'running'`).run(message, new Date().toISOString(), id)
+  fail(id: string, message: string, stage = 'Generation failed') {
+    this.database.prepare(`UPDATE moodboard_sets SET status = 'failed', stage = ?, error = ?,
+      completed_at = ? WHERE id = ? AND status = 'running'`).run(stage, message, new Date().toISOString(), id)
   }
 
   delete(id: string): boolean {

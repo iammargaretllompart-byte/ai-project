@@ -38,7 +38,9 @@ test('HTTP workflow preserves snapshots, resumes after a process crash, and revo
   await Promise.all(photos.map((photo) => fs.writeFile(path.join(root, 'uploads', photo.filename), png)))
   await fs.writeFile(path.join(root, 'data/photos.json'), JSON.stringify(photos))
 
-  let mode: 'success' | 'hold' | 'invalid' | 'no-matches' | 'invalid-search' | 'partial-search' = 'success'
+  let mode: 'success' | 'hold' | 'invalid' | 'no-matches' | 'invalid-search' | 'partial-search' | 'exclude' | 'insufficient' | 'schema-repair' | 'palette-repair' | 'too-few-references' = 'success'
+  let schemaRepairCalls = 0
+  let paletteRepairCalls = 0
   let release: (() => void) | undefined
   let held: Promise<void> = Promise.resolve()
   let calls = 0
@@ -48,7 +50,7 @@ test('HTTP workflow preserves snapshots, resumes after a process crash, and revo
     try {
       const chunks: Buffer[] = []
       for await (const chunk of request) chunks.push(Buffer.from(chunk))
-      const body = JSON.parse(Buffer.concat(chunks).toString()) as { tools: Array<{ name: string }>; messages: Array<{ content: Array<{ type: string; text?: string }> | string }> }
+      const body = JSON.parse(Buffer.concat(chunks).toString()) as { tools: Array<{ name: string }>; system?: Array<{ text: string }> | string; messages: Array<{ content: Array<{ type: string; text?: string }> | string }> }
       const texts = body.messages.flatMap((message) => typeof message.content === 'string' ? [message.content] : message.content.filter((part) => part.type === 'text').map((part) => part.text ?? ''))
       calls++
       const names = body.tools.map((tool) => tool.name)
@@ -61,6 +63,15 @@ test('HTTP workflow preserves snapshots, resumes after a process crash, and revo
           id, matchType: mode === 'no-matches' || (mode === 'partial-search' && index >= 3) ? 'partial' : 'strong',
           reason: mode === 'no-matches' || (mode === 'partial-search' && index >= 3) ? 'Matches the composition but lacks the requested subject.' : 'Visible editorial reference.',
         })) } }]
+      } else if (names.includes('repairPalette')) {
+        paletteRepairCalls++
+        assert.equal(mode, 'palette-repair')
+        assert.equal(names.includes('saveDirections'), false, 'Palette correction must not regenerate the full set')
+        const references = texts.flatMap((text) => {
+          try { const value = JSON.parse(text); return typeof value.photoId === 'string' ? [value.photoId] : [] }
+          catch { return [] }
+        })
+        content = [{ type: 'tool_use', id: randomUUID(), name: 'repairPalette', input: { palette: designFixture(references).directions[2].palette } }]
       } else if (names.includes('saveDirections')) {
         generationCalls++
         events.emit('generation')
@@ -71,8 +82,33 @@ test('HTTP workflow preserves snapshots, resumes after a process crash, and revo
           catch { return [] }
         })
         const design = designFixture(references)
+        // Real models commonly omit the inapplicable brand-only provenance field.
+        design.directions.forEach((direction) => direction.palette.forEach((colour) => { Reflect.deleteProperty(colour, 'sourceBriefQuote') }))
+        const metadata = texts.flatMap((text) => {
+          try { const value = JSON.parse(text); return typeof value.photoId === 'string' ? [value] : [] }
+          catch { return [] }
+        })
+        if (metadata.every((photo) => photo.matchType === 'partial')) {
+          design.referenceAssessment = { coverage: 'approximate', explanation: 'Only composition is supported; the requested subject is missing.' }
+        }
+        if (currentMode === 'exclude') {
+          const excludedId = references.at(-1)!
+          design.directions.forEach((direction) => { direction.references = direction.references.filter((reference) => reference.photoId !== excludedId) })
+          design.excludedReferences = [{ photoId: excludedId, reason: 'This image adds no relevant qualities to the three directions.' }]
+        }
         if (currentMode === 'invalid') design.directions[0].palette[0].role = 'surface'
-        content = [{ type: 'tool_use', id: randomUUID(), name: 'saveDirections', input: design }]
+        if (currentMode === 'too-few-references') design.directions.forEach((direction) => { direction.references = direction.references.slice(0, 2) })
+        if (currentMode === 'palette-repair') design.directions[2].palette[1].hex = '#000000'
+        if (currentMode === 'schema-repair') {
+          if (schemaRepairCalls++ === 0) Reflect.deleteProperty(design.directions[0], 'paletteUsage')
+          else {
+            assert.ok(JSON.stringify(body.system).includes('directions.0.paletteUsage'), 'Schema error path must be sent as correction feedback')
+            assert.ok(texts.some((text) => text.includes('Previous draft') && text.includes('Grounded direction')), 'Correction must receive the previous draft rather than starting over')
+          }
+        }
+        content = currentMode === 'insufficient'
+          ? [{ type: 'tool_use', id: randomUUID(), name: 'reportInsufficientReferences', input: { reason: 'The brief requires architectural material studies; these images only show unrelated UI screens. Add architectural textures and spatial references.' } }]
+          : [{ type: 'tool_use', id: randomUUID(), name: 'saveDirections', input: design }]
       } else throw new Error(`Unexpected provider tool: ${names.join(', ')}`)
       if (response.destroyed) return
       response.setHeader('content-type', 'application/json')
@@ -131,7 +167,11 @@ test('HTTP workflow preserves snapshots, resumes after a process crash, and revo
     assert.ok(response.ok, `${method} ${url}: ${response.status}; ${output}`)
     return response.json()
   }
-  const waitSet = (id: string, status: string) => until(() => json(`/moodboards/${id}`), (set) => set.status === status)
+  const waitSet = (id: string, status: string) => until(async () => {
+    const set = await json(`/moodboards/${id}`)
+    if (status === 'ready' && set.status === 'failed') throw new Error(`Unexpected generation failure: ${set.error}; ${output}`)
+    return set
+  }, (set) => set.status === status)
   function hold() { mode = 'hold'; held = new Promise<void>((resolve) => { release = resolve }) }
   async function waitGeneration(count: number) {
     while (generationCalls < count) await once(events, 'generation')
@@ -161,6 +201,9 @@ test('HTTP workflow preserves snapshots, resumes after a process crash, and revo
   assert.equal(partialSearch.photos.filter((photo: { matchType: string }) => photo.matchType === 'strong').length, 3)
   assert.equal(partialSearch.photos.filter((photo: { matchType: string }) => photo.matchType === 'partial').length, 3)
   assert.deepEqual((await json(`/searches/${partialSearch.id}`)).photos, partialSearch.photos)
+  const mixedSet = await json(`/searches/${partialSearch.id}/moodboards`, 'POST')
+  await waitSet(mixedSet.id, 'ready')
+  assert.equal((await json(`/moodboards/${mixedSet.id}`)).design.schemaVersion, 2)
   await json(`/searches/${partialSearch.id}`, 'DELETE')
   mode = 'success'
 
@@ -168,6 +211,8 @@ test('HTTP workflow preserves snapshots, resumes after a process crash, and revo
   await waitSet(first.id, 'ready')
   const ready = await json(`/moodboards/${first.id}`)
   assert.equal(ready.design.directions.length, 3)
+  assert.ok(ready.design.axis.explanation)
+  assert.ok(ready.design.specimen.headline)
   assert.equal(ready.search.prompt, search.prompt)
   assert.deepEqual(ready.search.photos, search.photos)
 
@@ -198,11 +243,44 @@ test('HTTP workflow preserves snapshots, resumes after a process crash, and revo
 
   mode = 'invalid'
   const failed = await json(`/searches/${search.id}/moodboards`, 'POST')
-  await waitSet(failed.id, 'failed')
+  assert.match((await waitSet(failed.id, 'failed')).error, /design checks/)
   mode = 'success'
   const retry = await json(`/searches/${search.id}/moodboards`, 'POST')
   await waitSet(retry.id, 'ready')
   assert.notEqual(failed.id, retry.id)
+
+  mode = 'too-few-references'
+  const tooFewSet = await json(`/searches/${search.id}/moodboards`, 'POST')
+  const tooFew = await waitSet(tooFewSet.id, 'failed')
+  assert.equal(tooFew.design, null)
+  assert.match(tooFew.error, /design checks/)
+
+  mode = 'schema-repair'
+  const repairedSet = await json(`/searches/${search.id}/moodboards`, 'POST')
+  await waitSet(repairedSet.id, 'ready')
+  assert.equal(schemaRepairCalls, 2)
+
+  mode = 'palette-repair'
+  const paletteSet = await json(`/searches/${search.id}/moodboards`, 'POST')
+  const paletteReady = await waitSet(paletteSet.id, 'ready')
+  assert.equal(paletteRepairCalls, 1)
+  assert.deepEqual(paletteReady.design, designFixture(search.photos.map((photo: { id: string }) => photo.id)))
+
+  mode = 'exclude'
+  const excludedSet = await json(`/searches/${search.id}/moodboards`, 'POST')
+  const excludedReady = await waitSet(excludedSet.id, 'ready')
+  assert.equal(excludedReady.design.excludedReferences.length, 1)
+  const excludedId = excludedReady.design.excludedReferences[0].photoId
+  assert.ok(excludedReady.design.directions.every((direction: { references: Array<{ photoId: string }> }) => direction.references.every((reference) => reference.photoId !== excludedId)))
+  mode = 'insufficient'
+  const callsBeforeInsufficient = generationCalls
+  const insufficientSet = await json(`/searches/${search.id}/moodboards`, 'POST')
+  const insufficient = await waitSet(insufficientSet.id, 'failed')
+  assert.equal(insufficient.design, null)
+  assert.equal(insufficient.stage, 'More relevant references needed')
+  assert.match(insufficient.error, /architectural material studies/)
+  assert.match(insufficient.error, /run a new search/)
+  assert.equal(generationCalls, callsBeforeInsufficient + 1)
 
   hold()
   const cancelCall = generationCalls + 1
@@ -224,7 +302,7 @@ test('HTTP workflow preserves snapshots, resumes after a process crash, and revo
   await waitGeneration(cascadeCall)
   await json('/searches', 'DELETE', { ids: [search.id] })
   release!()
-  for (const id of [first.id, second.id, interrupted.id, failed.id, retry.id, cascade.id]) assert.equal((await fetch(base + `/moodboards/${id}`)).status, 404)
+  for (const id of [first.id, second.id, interrupted.id, failed.id, retry.id, tooFewSet.id, repairedSet.id, paletteSet.id, excludedSet.id, insufficientSet.id, cascade.id]) assert.equal((await fetch(base + `/moodboards/${id}`)).status, 404)
   assert.equal((await fetch(base + search.photos[0].url)).status, 404)
   assert.equal((await fetch(base + `/searches/${search.id}`)).status, 404)
   assert.equal((await json('/searches')).total, 1)
@@ -235,6 +313,9 @@ test('HTTP workflow preserves snapshots, resumes after a process crash, and revo
   assert.equal(expanded.photos.length, 6)
   assert.equal(expanded.debug.additionalLibraryPhotoCount, 24)
   assert.ok(expanded.photos.every((photo: { matchType: string }) => photo.matchType === 'partial'))
+  const approximateSet = await json(`/searches/${expanded.id}/moodboards`, 'POST')
+  const approximate = await waitSet(approximateSet.id, 'ready')
+  assert.equal(approximate.design.referenceAssessment.coverage, 'approximate')
   await json('/photos', 'DELETE', { ids: ids.slice(3) })
   assert.deepEqual(await json('/library/status'), { photoCount: 2, minimumReferences: 6, canSearch: false })
   const callsBeforeBlockedSearch = calls

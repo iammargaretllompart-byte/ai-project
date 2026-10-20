@@ -1,5 +1,7 @@
 import type { GenerationInput, GenerationResult } from './moodboard-generator.js'
 import type { SearchStore } from './search-store.js'
+import { InsufficientMoodboardReferencesError } from './moodboard-guidance.js'
+import { InvalidMoodboardOutputError } from './moodboard-generator.js'
 
 export class MoodboardWorker {
   private task: Promise<void> | null = null
@@ -55,7 +57,15 @@ export class MoodboardWorker {
       } catch (error) {
         if (!this.stopped && this.store.moodboards.get(job.id)) {
           console.error(`Moodboard generation failed for ${job.id}`, error)
-          this.store.moodboards.fail(job.id, 'Could not generate this set. Please try again; your saved references are preserved.')
+          const insufficient = error instanceof InsufficientMoodboardReferencesError
+          const timedOut = error instanceof Error && error.name === 'TimeoutError'
+          const invalid = error instanceof InvalidMoodboardOutputError
+          this.store.moodboards.fail(job.id,
+            insufficient ? error.message : timedOut
+              ? 'The AI took too long to respond. Please retry generation; your saved references and earlier sets are preserved.'
+              : invalid ? 'The AI response did not pass the moodboard design checks after a correction attempt. Please retry generation; your saved references and earlier sets are preserved.'
+                : 'Could not generate this set. Please try again; your saved references are preserved.',
+            insufficient ? 'More relevant references needed' : timedOut ? 'Generation timed out' : 'Generation failed')
         }
       } finally {
         this.active = null
