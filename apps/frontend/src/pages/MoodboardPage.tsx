@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, LoaderCircle, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { apiBaseUrl } from '@/lib/api'
-import { isGenerating, type MoodboardPageData, type MoodboardSummary } from '@/lib/moodboards'
+import { isGenerating, type MoodboardPageData } from '@/lib/moodboards'
 import { notify } from '@/lib/notifications'
 import { copyText } from '@/lib/clipboard'
 import MoodboardDirectionBoard from '@/components/MoodboardDirectionBoard'
@@ -12,7 +12,6 @@ export default function MoodboardPage({ setId }: { setId: string }) {
   const [error, setError] = useState('')
   const [missing, setMissing] = useState(false)
   const [revision, setRevision] = useState(0)
-  const [isStarting, setIsStarting] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState('')
@@ -92,20 +91,6 @@ export default function MoodboardPage({ setId }: { setId: string }) {
     return () => { document.body.style.overflow = overflow }
   }, [confirmDelete])
 
-  async function regenerate() {
-    if (!data || isStarting || data.activeSetId) return
-    setIsStarting(true)
-    try {
-      const response = await fetch(`${apiBaseUrl}/searches/${data.searchId}/moodboards`, { method: 'POST' })
-      const next = await response.json() as MoodboardSummary & { error?: string }
-      if (!response.ok) throw new Error(next.error ?? 'Could not start generation.')
-      window.location.assign(`/moodboards/${next.id}`)
-    } catch (cause) {
-      notify('error', cause instanceof Error ? cause.message : 'Could not start generation.')
-      setIsStarting(false)
-    }
-  }
-
   async function copyLink() {
     try {
       await copyText(`${window.location.origin}/moodboards/${setId}`)
@@ -153,7 +138,7 @@ export default function MoodboardPage({ setId }: { setId: string }) {
         {missing ? <section className="glass-surface frosted-surface rounded-2xl p-8">
           <h1 className="headline-h1 outline-none" id="moodboard-page-title" tabIndex={-1}>This moodboard is unavailable</h1>
           <p className="mt-4 text-neutral-300">The set may have been deleted, or the link may be incorrect.</p>
-          <Button asChild variant="outline" className="mt-6"><a href="/history">Your history</a></Button>
+          <Button asChild variant="outline" className="mt-6"><a href="/history">Search History</a></Button>
         </section> : !data ? <section className="py-16" role="status">
           {error ? <><p role="alert">{error}</p><Button className="mt-4" onClick={() => setRevision((value) => value + 1)}>Try again</Button></> : <p className="flex items-center gap-3"><LoaderCircle className="h-5 w-5 animate-spin" /> Opening moodboards…</p>}
         </section> : <>
@@ -165,7 +150,6 @@ export default function MoodboardPage({ setId }: { setId: string }) {
             </div>
             <div className="flex shrink-0 flex-wrap gap-3">
               <Button variant="outline" onClick={() => void copyLink()}>Copy share link</Button>
-              <Button disabled={isStarting || Boolean(data.activeSetId)} onClick={() => void regenerate()}>{isStarting ? 'Starting…' : data.status === 'failed' ? 'Retry generation' : 'Regenerate'}</Button>
               <Button ref={deleteRef} variant="outline" className="border-red-400/40 text-red-200 hover:bg-red-500/10 hover:text-red-100" onClick={() => setConfirmDelete(true)}>Delete set</Button>
             </div>
           </header>

@@ -912,7 +912,7 @@ function SearchPage() {
         className={`page-container page-header relative z-10 justify-end gap-3 ${hasSearched ? 'invisible' : ''}`}
       >
         <Button asChild variant="outline">
-          <a href="/history">Your history</a>
+          <a href="/history">Search History</a>
         </Button>
         <AdminAccess />
       </nav>
@@ -1698,15 +1698,15 @@ function AdminPage() {
               the library grows.
             </p>
           </div>
-          <Button disabled={isUploading} type="button" onClick={openUploadModal}>
-            {isUploading ? 'Upload in progress' : 'Upload references'}
-          </Button>
         </div>
 
-        <section className="mt-8">
+        <section className="mt-10 sm:mt-12">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex min-h-10 items-center gap-3">
-              <span className="relative top-1 text-sm text-neutral-400">
+            <div className="flex min-h-10 flex-wrap items-center gap-3">
+              <Button disabled={isUploading} type="button" onClick={openUploadModal}>
+                {isUploading ? 'Upload in progress' : 'Upload references'}
+              </Button>
+              <span className="text-sm text-neutral-400">
                 {photos.length} total references
               </span>
             </div>

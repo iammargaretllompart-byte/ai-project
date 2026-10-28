@@ -1,22 +1,94 @@
 import { useEffect, useRef, useState } from 'react'
-import { LoaderCircle } from 'lucide-react'
+import { ArrowUpRight, LoaderCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { apiBaseUrl } from '@/lib/api'
 import { isGenerating, moodboardStatus, type MoodboardSet, type MoodboardSummary } from '@/lib/moodboards'
 import { notify } from '@/lib/notifications'
 
+function MoodboardSetCard({ set, number }: { set: MoodboardSummary; number: number }) {
+  const [detail, setDetail] = useState<MoodboardSet | null>(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (set.status !== 'ready') return
+    const controller = new AbortController()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let fetching = false
+    let loaded = false
+    async function load() {
+      if (fetching || loaded || controller.signal.aborted) return
+      fetching = true
+      clearTimeout(timer)
+      let retry = true
+      try {
+        const response = await fetch(`${apiBaseUrl}/moodboards/${encodeURIComponent(set.id)}`, { signal: controller.signal })
+        retry = response.status !== 404
+        if (!response.ok) throw new Error('Preview unavailable. Open this card to view the saved moodboard.')
+        const data = await response.json() as MoodboardSet
+        if (!controller.signal.aborted) {
+          setDetail(data)
+          setError('')
+          loaded = true
+        }
+      } catch (cause) {
+        if (!controller.signal.aborted) {
+          setError(cause instanceof Error ? cause.message : 'Could not load the moodboard preview.')
+          if (retry) timer = setTimeout(() => void load(), 5000)
+        }
+      } finally {
+        fetching = false
+      }
+    }
+    void load()
+    const onFocus = () => void load()
+    window.addEventListener('focus', onFocus)
+    return () => { controller.abort(); clearTimeout(timer); window.removeEventListener('focus', onFocus) }
+  }, [set.id, set.status])
+
+  return <li>
+    <a href={`/moodboards/${set.id}`} aria-labelledby={`moodboard-set-${set.id}`} className="glass-surface frosted-surface group block rounded-2xl p-5 transition-colors hover:border-[#85B9F1]/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#85B9F1] sm:p-6">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="flex flex-wrap items-center gap-3">
+            <h3 id={`moodboard-set-${set.id}`} className="headline-h3">Moodboard {number}</h3>
+            <span className={`rounded-full border px-2.5 py-1 text-xs ${set.status === 'failed' ? 'border-red-300/25 text-red-300' : 'border-[#85B9F1]/25 text-[#C2DCF8]'}`}>{moodboardStatus(set)}</span>
+          </div>
+          <p className="mt-2 text-xs text-neutral-500">Created <time dateTime={set.createdAt}>{new Date(set.createdAt).toLocaleString()}</time></p>
+        </div>
+        <ArrowUpRight aria-hidden="true" className="mt-1 h-5 w-5 shrink-0 text-neutral-400 transition-colors group-hover:text-[#C2DCF8]" />
+      </div>
+      {isGenerating(set) ? <div className="mt-5 flex items-start gap-3" role="status">
+        <LoaderCircle className="mt-0.5 h-5 w-5 shrink-0 animate-spin text-[#85B9F1]" />
+        <div><p className="text-sm text-neutral-200">{set.stage}</p><p className="mt-2 text-sm text-neutral-400">Generation continues in the background. You can open this card to follow its progress.</p></div>
+      </div> : null}
+      {set.status === 'failed' ? <p className="mt-5 text-sm leading-6 text-red-300">{set.error}</p> : null}
+      {set.status === 'ready' && !detail && !error ? <p className="mt-5 text-sm text-neutral-400" role="status">Loading direction previews…</p> : null}
+      {error ? <p className="mt-5 text-sm text-neutral-400">{error}</p> : null}
+      {detail?.design ? <>
+        {detail.design.referenceAssessment?.coverage === 'approximate' ? <p className="mt-5 text-xs leading-6 text-amber-200">Approximate interpretation · {detail.design.referenceAssessment.explanation}</p> : null}
+        <div className="mt-5 grid gap-5 border-t border-white/10 pt-5 lg:grid-cols-3">
+          {detail.design.directions.map(direction => <section key={direction.risk} className="min-w-0">
+            <p className="text-xs font-medium uppercase tracking-wider text-[#85B9F1]">{direction.risk}</p>
+            <h4 className="headline-h3 mt-2 break-words">{direction.title}</h4>
+            {direction.descriptors ? <p className="mt-2 text-xs leading-6 text-neutral-400">{direction.descriptors.join(' · ')}</p> : null}
+            <p className="mt-3 text-sm leading-6 text-neutral-300">{direction.summary}</p>
+            <div className="mt-4 flex overflow-hidden rounded-md" aria-label={`${direction.title} colour palette`}>{direction.palette.map(colour => <span key={colour.role} className="h-6 min-w-0 flex-1" style={{ backgroundColor: colour.hex }} title={`${colour.role}: ${colour.hex}`} />)}</div>
+            <p className="mt-3 text-xs leading-6 text-neutral-400">{direction.typography.heading.family} + {direction.typography.body.family}</p>
+          </section>)}
+        </div>
+      </> : null}
+    </a>
+  </li>
+}
+
 export default function MoodboardGeneration({ searchId }: { searchId: string }) {
   const [sets, setSets] = useState<MoodboardSummary[]>([])
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [detail, setDetail] = useState<MoodboardSet | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isStarting, setIsStarting] = useState(false)
   const [error, setError] = useState('')
-  const [detailError, setDetailError] = useState('')
   const [revision, setRevision] = useState(0)
   const mounted = useRef(true)
   const active = sets.find(isGenerating)
-  const selected = sets.find((set) => set.id === selectedId)
 
   useEffect(() => {
     mounted.current = true
@@ -42,7 +114,6 @@ export default function MoodboardGeneration({ searchId }: { searchId: string }) 
         if (controller.signal.aborted) return
         setSets(data.sets)
         setError('')
-        setSelectedId((current) => data.sets.some((set) => set.id === current) ? current : data.sets[0]?.id ?? null)
         if (data.sets.some(isGenerating)) timer = setTimeout(() => void load(), 3000)
       } catch (cause) {
         if (!controller.signal.aborted) {
@@ -60,24 +131,6 @@ export default function MoodboardGeneration({ searchId }: { searchId: string }) 
     return () => { controller.abort(); clearTimeout(timer); window.removeEventListener('focus', onFocus) }
   }, [searchId, revision])
 
-  useEffect(() => {
-    setDetail(null)
-    setDetailError('')
-    if (!selectedId || selected?.status !== 'ready') return
-    const controller = new AbortController()
-    void (async () => {
-      try {
-        const response = await fetch(`${apiBaseUrl}/moodboards/${encodeURIComponent(selectedId)}`, { signal: controller.signal })
-        if (!response.ok) throw new Error('Could not open this moodboard set.')
-        const data = await response.json() as MoodboardSet
-        if (!controller.signal.aborted) setDetail(data)
-      } catch (cause) {
-        if (!controller.signal.aborted) setDetailError(cause instanceof Error ? cause.message : 'Could not open moodboard set.')
-      }
-    })()
-    return () => controller.abort()
-  }, [selectedId, selected?.status, revision])
-
   async function generate() {
     if (isStarting || active) return
     setIsStarting(true)
@@ -86,7 +139,6 @@ export default function MoodboardGeneration({ searchId }: { searchId: string }) 
       const data = await response.json() as MoodboardSummary & { error?: string }
       if (!response.ok) throw new Error(data.error ?? 'Could not start moodboard generation.')
       if (!mounted.current) return
-      setSelectedId(data.id)
       setSets((current) => [data, ...current.filter((set) => set.id !== data.id)])
       setRevision((value) => value + 1)
       notify('success', 'Moodboard generation started. You can leave this page and return through History.')
@@ -99,55 +151,21 @@ export default function MoodboardGeneration({ searchId }: { searchId: string }) 
 
   return (
     <section aria-labelledby="moodboard-generation-title">
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h2 className="headline-h1" id="moodboard-generation-title">Explore three directions</h2>
-          <p className="mt-3 max-w-2xl text-neutral-300">Turn these references into Grounded, Exploratory, and Bold design directions. Each set is saved so you can revisit it.</p>
-        </div>
-        <Button disabled={isLoading || isStarting || Boolean(active) || Boolean(error)} onClick={() => void generate()}>
-          {isStarting ? 'Starting…' : active ? 'Generating…' : sets[0]?.status === 'failed' ? 'Retry generation' : sets.some((set) => set.status === 'ready') ? 'Regenerate moodboards' : 'Generate moodboards'}
-        </Button>
+      <header>
+        <h2 className="headline-h1" id="moodboard-generation-title">Explore three directions</h2>
+        <p className="mt-3 max-w-2xl text-neutral-300">Turn these references into Grounded, Exploratory, and Bold design directions.</p>
       </header>
+      <div className="mt-10 flex justify-end sm:mt-12">
+        <Button disabled={isLoading || isStarting || Boolean(active) || Boolean(error)} onClick={() => void generate()}>
+          {isStarting ? 'Starting…' : active ? 'Generating…' : sets[0]?.status === 'failed' ? 'Retry generation' : sets.some((set) => set.status === 'ready') ? 'Create another moodboard' : 'Generate moodboards'}
+        </Button>
+      </div>
       {isLoading ? <p className="mt-6 text-sm text-neutral-400" role="status">Loading saved sets…</p> : null}
-      {error || detailError ? <div className="mt-6"><p className="text-sm text-red-300" role="alert">{error || detailError}</p><Button variant="outline" className="mt-3" onClick={() => setRevision((value) => value + 1)}>Try again</Button></div> : null}
+      {error ? <div className="mt-6"><p className="text-sm text-red-300" role="alert">{error}</p><Button variant="outline" className="mt-3" onClick={() => setRevision((value) => value + 1)}>Try again</Button></div> : null}
       {sets.length ? (
-        <div className="mt-6 flex flex-wrap gap-3" aria-label="Saved moodboard sets">
-          {sets.map((set, index) => <Button key={set.id} variant="outline" aria-pressed={set.id === selectedId}
-            className={set.id === selectedId ? 'border-[#85B9F1]/60 text-[#C2DCF8]' : ''} onClick={() => setSelectedId(set.id)}>
-            Set {sets.length - index} · {moodboardStatus(set)}
-          </Button>)}
-        </div>
-      ) : null}
-      {selected && isGenerating(selected) ? <div className="glass-surface frosted-surface mt-6 flex items-start gap-3 rounded-2xl p-6" role="status">
-        <LoaderCircle className="mt-1 h-5 w-5 shrink-0 animate-spin text-[#85B9F1]" />
-        <div><p>{selected.stage}</p><p className="mt-2 text-sm text-neutral-400">Generation continues in the background. History will show when it’s ready.</p></div>
-      </div> : null}
-      {selected?.status === 'failed' ? <p className="mt-6 text-sm text-red-300" role="alert">{selected.error}</p> : null}
-      {selected ? <Button asChild variant="outline" className="mt-5"><a href={`/moodboards/${selected.id}`}>Open moodboard set</a></Button> : null}
-      {detail?.design ? (
-        <div className="mt-6">
-          <p className="mb-5 text-sm text-neutral-400">Saved direction plan</p>
-          {detail.design.axis ? <p className="mb-5 text-sm text-neutral-300"><span className="text-neutral-500">Shared axis: </span>{detail.design.axis.from} ↔ {detail.design.axis.to}</p> : null}
-          {detail.design.referenceAssessment?.coverage === 'approximate' ? <p className="mb-5 text-sm leading-6 text-amber-200">Approximate interpretation · {detail.design.referenceAssessment.explanation}</p> : null}
-          <div className="grid gap-5 lg:grid-cols-3">
-            {detail.design.directions.map((direction) => <article key={direction.risk} className="glass-surface frosted-surface rounded-2xl p-5">
-              <p className="text-xs font-medium uppercase tracking-wider text-[#85B9F1]">{direction.risk}</p>
-              <h3 className="headline-h3 mt-3">{direction.title}</h3>
-              {direction.descriptors ? <p className="mt-3 text-xs leading-6 text-neutral-400">{direction.descriptors.join(' · ')}</p> : null}
-              <p className="mt-4 text-sm leading-6 text-neutral-300">{direction.summary}</p>
-              <div className="mt-5 grid grid-cols-5 gap-2">{direction.palette.map((colour) => <div key={colour.role}>
-                <div className="h-12 rounded-md border border-white/15" style={{ backgroundColor: colour.hex }} title={`${colour.role}: ${colour.hex}`} />
-                <p className="mt-2 text-[10px] text-neutral-400">{colour.hex}</p>
-              </div>)}</div>
-              <p className="mt-5 text-sm text-neutral-300">{direction.typography.heading.family} + {direction.typography.body.family}</p>
-              <details className="mt-5 text-sm leading-6 text-neutral-400">
-                <summary className="cursor-pointer text-neutral-300">Direction rationale</summary>
-                <p className="mt-3">{direction.rationale}</p><p className="mt-3">{direction.typography.rationale}</p>
-                {direction.references.map((reference) => <p key={reference.photoId} className="mt-3">{reference.reason}</p>)}
-              </details>
-            </article>)}
-          </div>
-        </div>
+        <ul className="mt-4 space-y-5" aria-label="Saved moodboards">
+          {sets.map((set, index) => <MoodboardSetCard key={set.id} set={set} number={sets.length - index} />)}
+        </ul>
       ) : null}
     </section>
   )
