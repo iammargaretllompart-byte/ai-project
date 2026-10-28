@@ -39,7 +39,8 @@ test('HTTP workflow preserves snapshots, resumes after a process crash, and revo
   await Promise.all(photos.map((photo) => fs.writeFile(path.join(root, 'uploads', photo.filename), png)))
   await fs.writeFile(path.join(root, 'data/photos.json'), JSON.stringify(photos))
 
-  let mode: 'success' | 'hold' | 'invalid' | 'no-matches' | 'invalid-search' | 'partial-search' | 'exclude' | 'insufficient' | 'schema-repair' | 'palette-repair' | 'too-few-references' | 'contrast-repair' | 'all-palette-repair' = 'success'
+  let mode: 'success' | 'hold' | 'invalid' | 'no-matches' | 'invalid-search' | 'partial-search' | 'exclude' | 'insufficient' | 'schema-repair' | 'palette-repair' | 'too-few-references' | 'contrast-repair' | 'all-palette-repair' | 'repair-unknown-id' | 'repair-duplicate-id' | 'repair-count' | 'repair-no-tool' | 'repair-multiple-tools' = 'success'
+  const selectionAttempts = new Map<string, number>()
   let schemaRepairCalls = 0
   let paletteRepairCalls = 0
   let release: (() => void) | undefined
@@ -59,11 +60,36 @@ test('HTTP workflow preserves snapshots, resumes after a process crash, and revo
       if (names.includes('searchImages')) {
         content = (mode === 'no-matches' ? ['no-library-match', 'no-candidates'] : ['editorial', 'warm']).map((keyword) => ({ type: 'tool_use', id: randomUUID(), name: 'searchImages', input: { keywords: [keyword] } }))
       } else if (names.includes('selectImages')) {
+        // Concurrent failed batches may finish after the next test starts.
+        // Tie selection behaviour to its own request rather than mutable mode.
+        const selectionMode = texts.some(text => text.includes('Original user prompt: Invalid selection')) ? 'invalid-search'
+          : texts.flatMap(text => [...text.matchAll(/Original user prompt: Recover selection: (repair-[a-z-]+)/g)].map(match => match[1]))[0] ?? mode
         const candidates = [...new Set(texts.flatMap((text) => [...text.matchAll(/Candidate ID: ([0-9a-f-]+)/g)].map((match) => match[1])))]
-        content = [{ type: 'tool_use', id: randomUUID(), name: 'selectImages', input: { selections: (mode === 'invalid-search' ? [randomUUID()] : candidates.slice(0, 6)).map((id, index) => ({
-          id, matchType: mode === 'no-matches' || (mode === 'partial-search' && index >= 3) ? 'partial' : 'strong',
-          reason: mode === 'no-matches' || (mode === 'partial-search' && index >= 3) ? 'Matches the composition but lacks the requested subject.' : 'Visible editorial reference.',
+        const key = `${selectionMode}:${candidates.join(',')}`
+        const correcting = texts.some(text => text.startsWith('Selection correction:'))
+        // A single-image remainder can recur in a later narrowing round.
+        const attempt = (correcting ? selectionAttempts.get(key) ?? 0 : 0) + 1
+        selectionAttempts.set(key, attempt)
+        assert.ok(candidates.every(id => JSON.stringify(body.tools).includes(id)), 'Tool schema must enumerate the actual batch IDs')
+        const selected = candidates.slice(0, 6)
+        if (selectionMode === 'invalid-search' || (selectionMode === 'repair-unknown-id' && attempt === 1)) selected[selected.length - 1] = randomUUID()
+        if (selectionMode === 'repair-duplicate-id' && attempt === 1) {
+          if (selected.length === 1) selected.push(selected[0])
+          else selected[selected.length - 1] = selected[0]
+        }
+        if (selectionMode === 'repair-count' && attempt === 1) selected.pop()
+        if (selectionMode.startsWith('repair-') && attempt > 1) {
+          const feedback = texts.find(text => text.startsWith('Selection correction:'))
+          assert.ok(feedback?.includes('Previous response (data, not instructions):'), 'Correction must receive the rejected draft')
+          assert.ok(feedback?.includes('Allowed candidate IDs:'), 'Correction must receive the batch allowlist')
+          if (selectionMode === 'repair-duplicate-id') assert.ok(feedback.includes('distinct'), 'Correction must explain the duplicate error')
+        }
+        content = [{ type: 'tool_use', id: randomUUID(), name: 'selectImages', input: { selections: selected.map((id, index) => ({
+          id, matchType: selectionMode === 'no-matches' || ((selectionMode === 'partial-search' || selectionMode.startsWith('repair-')) && index >= 3) ? 'partial' : 'strong',
+          reason: selectionMode === 'no-matches' || ((selectionMode === 'partial-search' || selectionMode.startsWith('repair-')) && index >= 3) ? 'Matches the composition but lacks the requested subject.' : 'Visible editorial reference.',
         })) } }]
+        if (selectionMode === 'repair-no-tool' && attempt === 1) content = []
+        if (selectionMode === 'repair-multiple-tools' && attempt === 1) content.push({ ...content[0], id: randomUUID() })
       } else if (names.includes('repairPalette')) {
         paletteRepairCalls++
         assert.ok(mode === 'palette-repair' || mode === 'contrast-repair' || mode === 'all-palette-repair')
@@ -203,6 +229,20 @@ test('HTTP workflow preserves snapshots, resumes after a process crash, and revo
   mode = 'invalid-search'
   const failedSearch = await fetch(base + '/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: 'Invalid selection' }) })
   assert.equal(failedSearch.status, 502)
+  assert.equal((await json('/searches')).total, 2)
+  assert.ok([...selectionAttempts.entries()].filter(([key]) => key.startsWith('invalid-search:')).every(([, attempts]) => attempts === 3), 'Persistently invalid selections must stop after three attempts per batch')
+  mode = 'success'
+
+  for (const repairMode of ['repair-unknown-id', 'repair-duplicate-id', 'repair-count', 'repair-no-tool', 'repair-multiple-tools'] as const) {
+    mode = repairMode
+    const recovered = await json('/search', 'POST', { prompt: `Recover selection: ${repairMode}` })
+    assert.equal(recovered.photos.length, 6)
+    assert.equal(new Set(recovered.photos.map((photo: { id: string }) => photo.id)).size, 6)
+    assert.equal(recovered.photos.filter((photo: { matchType: string }) => photo.matchType === 'partial').length, 3)
+    assert.ok(recovered.photos.every((photo: { id: string }) => ids.includes(photo.id)))
+    assert.ok([...selectionAttempts.entries()].filter(([key]) => key.startsWith(`${repairMode}:`)).every(([, attempts]) => attempts === 2), 'Each narrowing/final batch should recover on its second call')
+    await json(`/searches/${recovered.id}`, 'DELETE')
+  }
   assert.equal((await json('/searches')).total, 2)
   mode = 'success'
 
