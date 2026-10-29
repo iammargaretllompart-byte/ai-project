@@ -8,7 +8,13 @@
     "start": "node dist/server.js",
     "build": "tsc",
     "test": "tsx --test tests/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "service:install": "node scripts/local-service.mjs install",
+    "service:start": "node scripts/local-service.mjs start",
+    "service:restart": "node scripts/local-service.mjs restart",
+    "service:stop": "node scripts/local-service.mjs stop",
+    "service:status": "node scripts/local-service.mjs status",
+    "service:uninstall": "node scripts/local-service.mjs uninstall"
   },
   "engines": {
     "node": ">=22.13.0"

@@ -2,6 +2,11 @@
 
 Run the backend with Node.js 22.13 or newer. SQLite uses Node's built-in `node:sqlite` module.
 
+For reliable local use on macOS, use the managed login service described in
+[`LOCAL-SERVICE.md`](LOCAL-SERVICE.md). It survives terminal/session closure,
+restarts on exit, and retains durable logs. After backend code or `.env` changes,
+run `npm run service:restart` from this directory to build and apply the update.
+
 ## Storage
 
 - `data/photos.json`: the existing editable photo library.
